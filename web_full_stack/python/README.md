@@ -12,9 +12,8 @@ You'll need [pipenv](https://pypi.org/project/pipenv/) to use this project. If y
 
 ## Running the server
 
-`pipenv run flask run --reload` will start a server on port 5000. You can then see the site at http://localhost:5000.
+`pipenv run flask run --reload` will start a server on port 5000. You can then see the site at <http://localhost:5000>.
 
 ## Running the tests
 
 `pipenv run pytest -vs` runs the test suite
-
