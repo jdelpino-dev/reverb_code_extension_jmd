@@ -13,6 +13,8 @@ node = "lts-gallium"
 
 [env]
 PIPENV_VENV_IN_PROJECT = "1"
+FLASK_APP = "app.py"
+FLASK_DEBUG = "1"
 
 [tasks."setup:web-python"]
 description = "Setup web_full_stack/python (Flask + Pipenv)"
@@ -36,3 +38,7 @@ run = "cd data/python && rm -rf .venv && uv sync"
 [tasks.setup]
 description = "Setup all interview tracks"
 depends = ["setup:web-python", "setup:web-js", "setup:web-ruby", "setup:data"]
+
+[tasks."run:web-python"]
+description = "Run Flask dev server"
+run = "cd web_full_stack/python && pipenv run flask run --reload"
