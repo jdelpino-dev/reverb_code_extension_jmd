@@ -27,9 +27,10 @@ ______________________________________________________________________
 
 1. **Read** — Candidate opens the code, traces request flow end-to-end
 2. **Explain** — "Walk me through how categories search works"
-3. **Implement** — Interviewer reveals the feature ask
-4. **Test** — Write/update tests for the new behavior
-5. **Discuss** — Trade-offs, what would you do differently with more time
+3. *(Optional)* **Explain** — "Walk me through how listings works" *(used as warm-up for listing-focused scenarios)*
+4. **Implement** — Interviewer reveals the feature ask
+5. **Test** — Write/update tests for the new behavior
+6. **Discuss** — Trade-offs, what would you do differently with more time
 
 ______________________________________________________________________
 
