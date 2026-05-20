@@ -282,7 +282,7 @@ ______________________________________________________________________
 
 ## Q21. "The interviewer asks 'what if we wanted to do X instead?' How do you respond?"
 
-"I don't get defensive about my current approach. I say: 'That's a good alternative. The trade-off would be [comparison].' Then I ask: 'Would you like me to switch to that approach, or discuss it and continue with what I have?'
+"I don't get defensive about my current approach. I say: 'That's a good alternative. The trade-off would be (comparison).' Then I ask: 'Would you like me to switch to that approach, or discuss it and continue with what I have?'
 
 This shows I can hold multiple solutions in mind, evaluate trade-offs, and take direction. If they say 'switch,' I switch cleanly. If they say 'keep going,' I note the alternative as something I'd revisit with more time."
 
