@@ -142,14 +142,22 @@ ______________________________________________________________________
 
 ## Q13. "You just implemented the happy path. What would you add next with another 30 minutes?"
 
-"In order of impact:
+**Context:** This is a portable follow-up question — the interviewer asks it *after* you finish implementing any feature (listing detail page, search, pagination, etc.). "The happy path" refers to whatever you just built working correctly with ideal inputs. The question tests whether you can prioritize incremental robustness improvements beyond the success case.
 
-1. **Error handling** — what if the API returns 500? Show a message, not a crash.
-2. **Empty state** — what if there are zero results? Don't show a blank page.
-3. **Loading feedback** — not relevant for server-rendered (page loads synchronously), but I'd mention it for React.
-4. **URL state** — make sure filters/pages are in the URL so back button and sharing work.
+"Assuming I just got the feature working end-to-end with valid data, here's what I'd add in order of impact:
+
+1. **Error handling** — what if the API returns 500? Show a user-friendly message, not an unhandled exception. This means adding `try/except` around the client call in the route handler and rendering the page with an error banner.
+2. **Empty state** — what if there are zero results? Don't show a blank page. Add a conditional in the template: 'No listings found' or 'Try a different search.'
+3. **Loading feedback** — not relevant for server-rendered (the page loads synchronously), but for the React version I'd add a spinner or skeleton while the fetch is in flight.
+4. **URL state** — make sure filters/pages are in the URL so back button and sharing work. For Flask this is already natural (`request.args`), but I'd verify the form preserves query params on submission.
 
 I wouldn't touch caching, retries, or architectural refactoring — those are valuable conversations but not 30-minute implementations."
+
+**Side note — relationship to scenarios and tests:**
+
+- This question is the *conceptual prelude* to Scenario 5 (`scenario-5-error-handling.md`), which asks you to actually implement error handling and loading states. If you get Q13 in conversation, Scenario 5 is what doing it looks like in code.
+- The existing tests (`test_categories.py`, `test_listings.py`) only cover the happy path — successful API responses with valid data. Q13 is essentially asking: "What's missing from those tests?" The answer maps directly to tests you'd write: mock a 500 response and assert the page still renders (see Q11's code example), mock an empty list and assert the 'no results' message appears.
+- Items 1–2 from this answer connect to Q11 (testing error cases) and Q14 (handling slow/down APIs). The questionnaire is designed so these questions build on each other.
 
 ______________________________________________________________________
 
@@ -161,7 +169,7 @@ ______________________________________________________________________
 2. **Exception handling** — Catch `requests.Timeout` and `ConnectionError` in the client, raise a domain-specific `ApiError`.
 3. **Graceful UI** — In the route handler, catch `ApiError`, show a user-friendly message, render the page with empty data.
 
-Longer-term: cache responses for endpoints that rarely change (categories). Use a circuit breaker if failures are sustained. But those are 'with more time' answers, not interview-scope implementations."
+Longer-term: cache responses for endpoints that rarely change (categories). Use a circuit breaker if failures are sustained — that's a pattern where after N consecutive failures, you stop calling the API entirely for a cooldown period (e.g., 30 seconds) and return a cached/fallback response immediately. This prevents hammering a struggling service and lets it recover. After the cooldown, you let one request through to test if the service is back ('half-open' state). But those are 'with more time' answers, not interview-scope implementations."
 
 ______________________________________________________________________
 
