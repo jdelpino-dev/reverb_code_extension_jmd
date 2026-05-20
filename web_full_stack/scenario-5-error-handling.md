@@ -54,7 +54,7 @@ class ApiError(Exception):
 class ReverbClient:
     # ... existing code ...
 
-    def _get(self, path, params={}):
+    def _get(self, path, params=None):
         response = requests.get(
             self._base_uri + path,
             headers=self.HEADERS,
@@ -226,6 +226,9 @@ ______________________________________________________________________
 | Where to handle errors | "I chose to catch at the controller level so the client stays pure — it either returns data or throws. The controller decides what to show the user." |
 | Retry logic | "For transient errors I could add automatic retry with backoff, but that's complexity I'd only add after seeing real failure patterns." |
 | Timeout | "I'd set a request timeout (e.g., 5 seconds) so slow APIs don't hang the page indefinitely." |
+| **Differentiated failure profiles** | "Categories are CDN-cached (24h, ~11ms response). Failure is extremely rare — implies CDN-level outage. Listings always hit origin (~600ms, `Cache-Control: no-cache`). Failure is routine. Error handling should be more aggressive for listings." |
+| **429 Rate Limiting** | "Reverb returns 429 for excessive volume with no published quotas. This is NOT a transient error like 5xx — it's an instruction to slow down. Must back off (honor `Retry-After` header), not retry immediately." |
+| **Timeout calibration** | "API exploration shows: categories ~11ms from CDN edge, listings ~600ms from origin. A 5s timeout is generous for categories but reasonable for listings." |
 | Loading UX | "A spinner or skeleton gives feedback. Without it, the page looks broken during the fetch." |
 | Error granularity | "I'm showing a generic message. In production I'd maybe distinguish between 'not found' and 'server error' but not leak API details to users." |
 | Global error boundary (React) | "Could wrap the app in an ErrorBoundary for unhandled crashes, but per-component error state is more granular." |
@@ -249,7 +252,7 @@ class ApiError(Exception):
 
 class ReverbClient:
     HEADERS = {
-        'Accept': 'application/json',
+        'Accept': 'application/hal+json',
         'Accept-Version': '3.0',
         'Content-Type': 'application/hal+json'
     }
@@ -263,7 +266,7 @@ class ReverbClient:
     def categories(self):
         return self._get('/categories/flat')['categories']
 
-    def _get(self, path, params={}):
+    def _get(self, path, params=None):
         response = requests.get(
             self._base_uri + path,
             headers=self.HEADERS,
@@ -341,7 +344,7 @@ def _load_categories():
 ### Step 4: Add timeout to prevent hanging
 
 ```python
-def _get(self, path, params={}):
+def _get(self, path, params=None):
     try:
         response = requests.get(
             self._base_uri + path,
@@ -444,5 +447,5 @@ def test_page_renders_without_listings_on_error():
 
 **Key insight:** "Python's exception handling with `try/except` maps directly to Ruby's `begin/rescue`. The pattern is the same: client raises, controller catches, user sees a friendly message. Flask's `flash` is simpler than Rails' flash — it's just a list of strings stored in the session."
 
-**Discussion point — the mutable default arg:**
-"You might notice `def _get(self, path, params={})` uses a mutable default. In production Python this is a bug waiting to happen — the dict is shared across calls. A safer pattern is `params=None` then `params = params or {}`. But for this interview scope, it's fine since we never mutate the default."
+**Discussion point — mutable default args:**
+"The original code had `def _get(self, path, params={})` which is a classic Python bug — the dict is shared across calls. We fixed it to `params=None` in the foundational improvements (Scenario 0). Always mention this if you spot it in an interview codebase."

@@ -119,6 +119,10 @@ function validate(message, email) {
 
 ### 2b. Add POST Route
 
+### Important: No Public Contact Endpoint Exists
+
+The Reverb API has no public "contact seller" endpoint. The authenticated API exposes `_links.make_offer` (POST) for offers and `start_conversation` for messaging — both require Bearer tokens. In this exercise, we're **simulating the form-handling pattern** (POST, validate, PRG) without actually hitting a real API endpoint. Mention this to the interviewer: "There's no public contact endpoint, so I'm demonstrating the POST flow pattern — in production this would hit an authenticated messaging API."
+
 **Python** — `app.py`:
 
 ```python

@@ -24,13 +24,27 @@ Reverb's public API exposes: `GET /api/listings/{id}` → returns a single listi
 
 - `title`, `description`, `price`, `condition`, `shipping`, `photos[]`, `shop` info
 
+**Detail endpoint returns 46 fields** (vs. ~28 in the collection view). Additional fields include: `accepted_payment_methods`, `return_policy`, `shipping_policy`, `location`, `videos`, `stats`, `offer_count`, and more.
+
+**Photos:** The detail endpoint returns **all photos** (e.g., 3+) vs. only 1 in the collection view. Plan to iterate/display multiple images.
+
+### URL Construction vs. Link-Following
+
+Each listing in the collection view includes `_links.self.href` (e.g., `https://api.reverb.com/api/listings/97305295-fender-telecaster-...`).
+
+**When link-following helps here:** If the user navigates from the listings page (where you already have the listing object in memory), you can pass `_links.self.href` to the detail page and use it directly — no URL construction needed.
+
+**When URL construction is necessary:** When a user bookmarks or directly visits `/listings/123`, your route receives only the ID — you *must* construct the API URL. There's no `_links` to follow because you don't have a listing object yet.
+
+**Interview framing:** "I construct the URL from the ID because the route only has an ID. If I were navigating from the collection view, I could pass the `_links.self.href` through — but for direct-access routes, URL construction is unavoidable."
+
 ### 2b. Extend the API Client
 
 **Ruby** (`lib/reverb_client.rb`):
 
 ```ruby
 def listing(id)
-  get("/listings/#{id}")['listing']
+  get("/listings/#{id}")
 end
 ```
 
@@ -38,7 +52,7 @@ end
 
 ```python
 def listing(self, listing_id):
-    return self._get(f'/listings/{listing_id}')['listing']
+    return self._get(f'/listings/{listing_id}')
 ```
 
 **React** (`API.js`):
@@ -48,6 +62,8 @@ export async function fetchListing(id) {
   return getJSON(`${LISTINGS_URL}/${id}`);
 }
 ```
+
+**Note:** Unlike the collection endpoint (which wraps results in `{"listings": [...]}`) the detail endpoint returns the listing object **directly at the top level** with 46 keys. No `['listing']` unwrap needed.
 
 ### 2c. Add Route + Controller/Component
 
@@ -150,7 +166,7 @@ ______________________________________________________________________
 ```ruby
 it 'fetches a single listing' do
   stub_request(:get, "https://api.reverb.com/api/listings/123")
-    .to_return(status: 200, body: { listing: { title: 'Test' } }.to_json)
+    .to_return(status: 200, body: { title: 'Test', price: { display: '$500' } }.to_json)
 
   listing = client.listing('123')
   expect(listing['title']).to eq('Test')
@@ -185,7 +201,7 @@ def test_displays_listing_detail(client):
 
 ```jsx
 it('displays listing detail', async () => {
-  const response = Promise.resolve({ listing: { title: 'Test', photos: [...], price: { display: '$100' } } });
+  const response = Promise.resolve({ title: 'Test', photos: [{_links: {large_crop: {href: 'img.png'}}}], price: { display: '$100' } });
   jest.spyOn(API, 'fetchListing').mockImplementation(() => response);
   // mount, await, assert
 });
@@ -212,10 +228,10 @@ This is your primary interview stack. Here's the complete implementation with an
 ```python
 def listing(self, listing_id):
     """Fetch a single listing by ID."""
-    return self._get(f'/listings/{listing_id}')['listing']
+    return self._get(f'/listings/{listing_id}')
 ```
 
-**What to say:** "I'm adding a method that takes an ID and hits the individual listing endpoint. Same pattern as the existing methods — delegates to `_get` and unwraps the response key."
+**What to say:** "I'm adding a method that takes an ID and hits the individual listing endpoint. Unlike the collection endpoint which wraps in `{'listings': [...]}`, the detail endpoint returns the listing object directly — no unwrapping needed. I verified this from the API response structure (46 keys at the top level)."
 
 ### Step 2: Add route in `app.py`
 
@@ -295,17 +311,15 @@ def client():
 
     mock_get = patch('reverb_client.requests.get').start()
     mock_get.return_value.json.return_value = {
-        'listing': {
-            'id': '123',
-            'title': 'Fender Telecaster',
-            'description': 'A nice guitar',
-            'price': {'amount': '1200.00', 'display': '$1,200'},
-            'photos': [{
-                '_links': {
-                    'large_crop': {'href': 'https://img.reverb.com/large.jpg'}
-                }
-            }]
-        }
+        'id': '123',
+        'title': 'Fender Telecaster',
+        'description': 'A nice guitar',
+        'price': {'amount': '1200.00', 'amount_cents': 120000, 'display': '$1,200'},
+        'photos': [{
+            '_links': {
+                'large_crop': {'href': 'https://img.reverb.com/large.jpg'}
+            }
+        }]
     }
 
     with app.test_client() as client:
@@ -342,7 +356,7 @@ def test_has_back_link(client):
 def test_fetches_single_listing():
     mock_get = patch('reverb_client.requests.get').start()
     mock_get.return_value.json.return_value = {
-        'listing': {'id': '123', 'title': 'Fender Telecaster'}
+        'id': '123', 'title': 'Fender Telecaster'
     }
 
     listing = ReverbClient().listing('123')

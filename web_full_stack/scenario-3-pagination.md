@@ -27,15 +27,43 @@ The Reverb API returns HAL-style links:
 
 ```json
 {
-  "total": 1234,
+  "total": 2537869,
   "current_page": 1,
-  "total_pages": 124,
+  "total_pages": 50,
+  "per_page": 10,
   "listings": [...],
   "_links": {
-    "next": { "href": "/api/listings/all?page=2&per_page=10" }
+    "next": { "href": "https://api.reverb.com/api/listings/all?page=2&per_page=10" }
   }
 }
 ```
+
+### CRITICAL GOTCHA: 50-Page Cap
+
+Despite ~2.5M total listings, `total_pages` is **always capped at 50** regardless of `per_page`. This is intentional:
+
+- Deep offset pagination is expensive and unstable on a live marketplace
+- It prevents full-catalog scraping
+- The cap applies per-query — narrower filters expose a *different* 50-page window
+
+**Implications for your implementation:**
+
+- Never show numbered page buttons 1–N assuming `total_pages` reflects the true dataset size
+- The "total" field (2.5M) does NOT mean you can access all of them via pagination
+- To reach more data, partition queries by category, condition, price range, etc.
+
+### Pagination: Where Link-Following Genuinely Helps
+
+Pagination is the strongest case for following `_links` rather than constructing URLs:
+
+- `_links.next.href` gives you a full absolute URL — the server tells you exactly where the next page is
+- `_links.prev.href` for the previous page
+- **`_links.next` is absent on the last page** — this is the authoritative signal to hide "Next", more reliable than comparing `current_page >= total_pages` (which is capped at 50 anyway)
+- The link encodes the correct `per_page` value, so you can't accidentally mismatch params
+
+**Why this matters for the 50-page cap:** Since `total_pages` is artificially capped at 50, you cannot trust arithmetic like `current_page < total_pages` to mean "more data exists." But `_links.next` being present/absent is the server's definitive answer.
+
+**Practical approach for the interview:** Construct URLs with `?page=N` for simplicity (it works), but store/use `_links.next` presence as the "has more pages" signal. Mention: "Following `_links.next` is more robust than page arithmetic because `total_pages` is capped."
 
 ### 2b. Extend the API Client
 
@@ -193,7 +221,9 @@ ______________________________________________________________________
 | Topic | What to say |
 | -- | -- |
 | Offset vs cursor pagination | "Offset (page number) is simple but can miss items if data changes between pages. Cursor-based is more reliable for feeds." |
+| **50-page cap** | "Reverb caps `total_pages` at 50 per query. This is a platform constraint — to access more data, partition queries by category/condition/price rather than paginating deeper." |
 | URL state | "Page in the URL means refresh stays on the same page, and you can share links to specific pages" |
+| Link-following vs URL construction | \"For pagination, `_links.next` is genuinely useful \u2014 it's the server's authoritative signal that more data exists (more reliable than `current_page < total_pages` since that's capped at 50). I construct the initial URL but use `_links.next` presence to control the Next button.\" |
 | Pre-fetching | "Could pre-fetch the next page for instant transitions, but adds complexity" |
 | Infinite scroll vs pages | "Infinite scroll feels better for browsing but is harder to implement (intersection observer, append state). Pages are simpler and give positional context." |
 | API contract change | "I changed the client to return the full response object instead of just listings — this is a breaking change to discuss." |

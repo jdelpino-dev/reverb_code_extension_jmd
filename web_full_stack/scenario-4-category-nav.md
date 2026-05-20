@@ -23,9 +23,44 @@ ______________________________________________________________________
 
 ### 2a. API Discovery
 
-The Reverb API: `GET /api/listings/all?category=electric-guitars` or `?category_uuid=XXX`
+The Reverb API: `GET /api/listings/all?category_uuid=<UUID>` — filters by category UUID.
 
-The categories response includes `uuid` and `slug` fields per category.
+The categories response includes `uuid`, `slug`, and critically, a pre-built `_links.listings.href`:
+
+```json
+{
+  "uuid": "14d6cc96-ed7b-4521-bc21-7713c61e9dc5",
+  "slug": "12-string",
+  "full_name": "Acoustic Guitars / 12-String",
+  "_links": {
+    "listings": { "href": "https://api.reverb.com/api/listings?category_uuid=14d6cc96-..." }
+  }
+}
+```
+
+### Link-Following: Practical Here
+
+This scenario is where link-following is **genuinely practical** — you already have the full category object in memory (from the search/browse), and each one includes `_links.listings.href` pre-built by the server:
+
+- The link uses `category_uuid` (the reliable identifier) — no guesswork about which param name works
+- You don't need to know whether the API expects `category`, `category_uuid`, or `category_slug` — the link tells you
+- You can store `_links.listings.href` as a data attribute on the HTML link or pass it as a query param
+
+**Interview approach:** Use slugs for the human-readable URL in the browser (`/listings?category=electric-guitars`) but call the API using `_links.listings.href` from the category object when available. Mention: "Each category includes a pre-built link to its listings — I'd use that for the API call since it uses the exact parameter format the server expects."
+
+### GOTCHA: `category_uuid` vs `category` slug
+
+The category `_links.listings` URL uses `?category_uuid=<UUID>`. Using `?category=<slug>` may also work (undocumented) but is not what the API officially advertises. For reliability, prefer `category_uuid`.
+
+**The code below uses slug for simplicity** (human-readable URLs, easier to debug). In an interview, mention: "I'm using the slug for readability, but I know the API's own links use `category_uuid`. If the slug approach fails, I'd switch to passing the UUID."
+
+**Alternative approach using the link directly:**
+
+```python
+def listings_by_link(self, listings_href):
+    \"\"\"Follow a pre-built _links.listings.href from a category object.\"\"\"
+    return requests.get(listings_href, headers=self.HEADERS).json()['listings']
+```
 
 ### 2b. Extend the API Client
 
@@ -198,7 +233,8 @@ ______________________________________________________________________
 
 | Topic | What to say |
 | -- | -- |
-| Slug vs UUID | "Slug is human-readable in URLs. UUID is guaranteed unique. I used slug since the API supports it and it's better UX." |
+| Slug vs UUID | "The API's `_links.listings` uses `category_uuid`. Slug is human-readable in the browser URL, but UUID is what the API officially advertises. I use slug for my app's routes, but for the API call I'd use `_links.listings.href` from the category object." |
+| **Link-following (practical here)** | "This is where link-following genuinely helps — I already have the category object with a pre-built API URL for its listings. No guessing param names. I use the slug in my app's URL for readability, but the API call uses the category's link." |
 | Coupling pages | "Now listings depends on knowing about categories. That's fine for navigation but I'd avoid deeper coupling." |
 | Breadcrumbs | "With more time I'd add a breadcrumb: Home > Guitars > Listings" |
 | Back button | "Since category is in the URL params, browser back works naturally" |

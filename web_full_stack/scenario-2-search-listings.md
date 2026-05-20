@@ -25,6 +25,15 @@ ______________________________________________________________________
 
 The Reverb API supports: `GET /api/listings/all?query=fender&per_page=10`
 
+### Additional Search Endpoints (Discovered via API Exploration)
+
+The API also exposes two **autocomplete/suggest** endpoints useful for search UX:
+
+- `GET /api/autocomplete?query=fender` → returns `{ "makes": [...], "models": [...] }` (brand/model name suggestions)
+- `GET /api/autosuggest?query=fender` → returns rich suggestions grouped by section with full `_links` to listings and web pages
+
+These are perfect for a follow-up "add typeahead" extension. Mention them to show API awareness.
+
 **Ruby** — `lib/reverb_client.rb`:
 
 ```ruby

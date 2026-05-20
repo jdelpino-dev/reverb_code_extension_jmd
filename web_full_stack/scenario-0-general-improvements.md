@@ -124,6 +124,46 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## Cross-Codebase Issues Discovered via API Exploration
+
+### 7. React `API.js` uses wrong endpoint URL
+
+**Current:**
+
+```javascript
+const LISTINGS_URL = 'https://api.reverb.com/api/listings';
+```
+
+**Should be:**
+
+```javascript
+const LISTINGS_URL = 'https://api.reverb.com/api/listings/all';
+```
+
+**Why:** The browsing/search endpoint is `/api/listings/all` (returns paginated collection). The bare `/api/listings` may behave differently or require authentication. The Python client correctly uses `/listings/all`.
+
+### 8. React `API.js` uses inconsistent `Accept` header
+
+**Current:**
+
+```javascript
+const HEADERS = {
+  Accept: 'application/json',  // ← inconsistent
+  'Accept-Version': '3.0',
+  'Content-Type': 'application/hal+json'
+}
+```
+
+**Should be:** `Accept: 'application/hal+json'` for consistency with the Python client.
+
+**In practice:** API exploration confirms the server **ignores** the `Accept` header entirely (always returns `application/hal+json` regardless). This is functionally harmless but shows inconsistency between the two clients. Worth mentioning as a code review observation.
+
+### 9. `Content-Type` on GET requests is semantically meaningless
+
+Both clients send `Content-Type: application/hal+json` on every request, but GET requests have no body. This header is only meaningful on POST/PUT requests that send a body. Harmless but unnecessary for reads — a production client could omit it for GET.
+
+______________________________________________________________________
+
 ## How to Talk About This
 
 ### "Walk me through what you notice in this code"

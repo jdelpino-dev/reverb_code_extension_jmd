@@ -24,8 +24,9 @@ ______________________________________________________________________
 2. `raise_for_status()` — prevents silent failures
 3. Session — foundation for headers, retries, auth
 4. Retries — survive transient 5xx errors
-5. Throttling — proactively avoid rate limits
-6. Caching — eliminate redundant calls
+5. ETag/conditional GET — leverage server's built-in cache validation (categories return `304` with zero body)
+6. Throttling — proactively avoid rate limits
+7. TTL Caching — eliminate redundant calls (complement ETags for full round-trip avoidance)
 
 ______________________________________________________________________
 
@@ -210,6 +211,75 @@ class ReverbClient:
 
 ______________________________________________________________________
 
+### Step 5: ETag / Conditional GET for Categories (+5 min)
+
+The Reverb API **already supports** ETag-based conditional GET for categories:
+
+- `/api/categories/flat` returns `ETag: W/"27bca2a233cebe6f57204ebb2785c5b0"` and `Cache-Control: max-age=86400, public`
+- Sending `If-None-Match: <stored-etag>` returns `304 Not Modified` (zero body transfer, saves ~312 KB)
+- Cloudflare validates the ETag at the edge without hitting the origin
+
+This is the **first-class caching mechanism** the server was built for — more correct than client-side TTL alone because the server tells you when data actually changed.
+
+```python
+class ReverbClient:
+    def __init__(self, ...):
+        ...
+        self._etags = {}      # path -> etag string
+        self._etag_data = {}  # path -> cached response data
+
+    def _get(self, path, params=None, use_cache=True):
+        params = params or {}
+        cache_key = (path, tuple(sorted(params.items())))
+
+        # Check TTL cache first (for any endpoint)
+        if self._enable_cache and use_cache:
+            cached = self._get_cached(cache_key)
+            if cached is not None:
+                return cached
+
+        # Build headers with ETag for conditional GET
+        request_headers = {}
+        if path in self._etags:
+            request_headers["If-None-Match"] = self._etags[path]
+
+        response = self._session.get(
+            self._base_uri + path,
+            params=params,
+            timeout=self._timeout,
+            headers=request_headers,
+        )
+
+        # 304 Not Modified — use cached ETag data
+        if response.status_code == 304 and path in self._etag_data:
+            return self._etag_data[path]
+
+        response.raise_for_status()
+        data = response.json()
+
+        # Store ETag for future conditional requests
+        etag = response.headers.get("ETag")
+        if etag:
+            self._etags[path] = etag
+            self._etag_data[path] = data
+
+        # Also store in TTL cache
+        if self._enable_cache and use_cache:
+            ttl = self.CACHE_TTLS.get(path, 60)
+            self._cache[cache_key] = (time.monotonic() + ttl, data)
+
+        return data
+```
+
+**Narrate:** "The server already supports conditional GET for categories — I'm leveraging the infrastructure they built rather than reimplementing staleness detection. TTL cache avoids the network round-trip entirely; ETag catches cases where the TTL expires but the data hasn't actually changed. They complement each other."
+
+**Key insight from API exploration:**
+
+- Categories: ETag supported, CDN-cached 24h, `304` possible → use both TTL + ETag
+- Listings: No ETag, `Cache-Control: no-cache`, always MISS → TTL cache only (short)
+
+______________________________________________________________________
+
 ## Phase 3: Test
 
 ### Testing the improved client
@@ -283,11 +353,28 @@ ______________________________________________________________________
 ## The Four-Layer Defense (Summary)
 
 ```plaintext
-1. CACHE    → Already have the answer? Return immediately.
-2. THROTTLE → Space out requests to avoid 429.
-3. 429 HANDLER → Rate-limited? Honor Retry-After, adapt interval.
-4. RETRY    → 5xx transient failure? Exponential backoff.
+1. CACHE    → Already have the answer? Return immediately (TTL-based).
+2. ETAG     → TTL expired? Ask server "did it change?" (304 = no body transfer).
+3. THROTTLE → Space out requests to avoid 429.
+4. 429 HANDLER → Rate-limited? Honor Retry-After, adapt interval.
+5. RETRY    → 5xx transient failure? Exponential backoff.
 ```
+
+### API-Verified Cache Behavior (from exploration)
+
+```plaintext
+Endpoint               ETag    304 possible   CDN cached    Cache-Control
+/api/categories/flat   YES     YES            YES (24h)     max-age=86400, public
+/api/listings/all      NO      NO             NO (MISS)     no-cache
+```
+
+**Practical implication:** Categories benefit from both TTL + ETag. Listings only benefit from short client-side TTL (the server never caches them).
+
+### Header Notes
+
+- `Accept: application/hal+json` — has **zero effect** on the response (server always returns HAL+JSON regardless). Include as documentation convention.
+- `Content-Type: application/hal+json` on GET — semantically meaningless (GET has no body). Harmless but unnecessary for reads.
+- `Accept-Version: 3.0` — **does matter**. Defaults to 1.0 without it.
 
 ______________________________________________________________________
 

@@ -20,6 +20,25 @@ ______________________________________________________________________
 - "Is there a priority — should categories load even if listings fail?"
 - "Top 5 categories by what — alphabetical, most popular? (API supports any ordering?)"
 
+### Pre-Research: Payload & Performance Asymmetry
+
+From API exploration, the two endpoints have very different profiles:
+
+| | Categories | Listings |
+|---|---|---|
+| Endpoint | `/api/categories/flat` | `/api/listings/all?per_page=5` |
+| Response size | **~312 KB** (all 320 categories) | ~22 KB (5 listings) |
+| Latency | ~11ms (CDN edge hit) | ~600ms (origin) |
+| Caching | 24h CDN + ETag | Never cached |
+| Failure likelihood | Near-zero (CDN) | Routine |
+
+**Implications for the dashboard:**
+
+1. **Fetching all 320 categories (~312 KB) just to show 5 is wasteful.** Consider using `/api/categories` (returns only 14 root categories) instead of `/api/categories/flat`.
+2. **Categories will always be fast/reliable** (CDN-served). Listings are the likely partial-failure case.
+3. **Fetch categories first** or in parallel — they're effectively free from the CDN.
+4. **The `[:5]` slice happens after downloading 312 KB** — there's no `per_page` param on categories (it always returns all 320). This is acceptable since it's cached at the CDN, but worth noting.
+
 ______________________________________________________________________
 
 ## Phase 2: Implement

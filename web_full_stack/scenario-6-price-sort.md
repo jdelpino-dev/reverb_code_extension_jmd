@@ -29,12 +29,35 @@ The listing response already contains:
 {
   "title": "Fender Telecaster",
   "price": {
+    "tax_included": false,
     "amount": "1200.00",
+    "amount_cents": 120000,
     "currency": "USD",
+    "symbol": "$",
     "display": "$1,200"
   }
 }
 ```
+
+### GOTCHA: `price.amount` is a STRING
+
+`amount` is `"1200.00"` (string), not `1200.00` (number). Sorting directly without casting produces **lexicographic order** where `"95" > "450"`. You MUST cast to numeric for sorting.
+
+### Better: Use `amount_cents` for Sorting
+
+`price.amount_cents` is an **integer** (120000). Sorting by this avoids float precision issues entirely and is the most robust approach:
+
+```python
+# Preferred:
+results.sort(key=lambda l: l['price']['amount_cents'])
+
+# Also works but has float precision edge cases:
+results.sort(key=lambda l: float(l['price']['amount']))
+```
+
+### `buyer_price` vs `price`
+
+The API returns both `price` (seller's asking price) and `buyer_price` (what the buyer pays after currency conversion). These can differ when currency conversion applies. Display/sort by `price` for consistency unless you're building a buyer-specific experience.
 
 **Ruby** — `app/views/listings/index.html.erb`:
 
@@ -89,9 +112,9 @@ private
 def sort_listings(listings, sort_param)
   case sort_param
   when 'price_asc'
-    listings.sort_by { |l| l['price']['amount'].to_f }
+    listings.sort_by { |l| l['price']['amount_cents'] }
   when 'price_desc'
-    listings.sort_by { |l| -l['price']['amount'].to_f }
+    listings.sort_by { |l| -l['price']['amount_cents'] }
   else
     listings
   end
@@ -116,9 +139,9 @@ def listings():
     results = ReverbClient().listings()
     sort = request.args.get('sort')
     if sort == 'price_asc':
-        results.sort(key=lambda l: float(l['price']['amount']))
+        results.sort(key=lambda l: l['price']['amount_cents'])
     elif sort == 'price_desc':
-        results.sort(key=lambda l: float(l['price']['amount']), reverse=True)
+        results.sort(key=lambda l: l['price']['amount_cents'], reverse=True)
     return render_template('listings.html', listings=results, sort=sort)
 ```
 
@@ -130,8 +153,8 @@ const [sortOrder, setSortOrder] = useState(null);
 const sortedListings = useMemo(() => {
   if (!sortOrder) return listings;
   return [...listings].sort((a, b) => {
-    const priceA = parseFloat(a.price.amount);
-    const priceB = parseFloat(b.price.amount);
+    const priceA = a.price.amount_cents;
+    const priceB = b.price.amount_cents;
     return sortOrder === 'asc' ? priceA - priceB : priceB - priceA;
   });
 }, [listings, sortOrder]);
@@ -152,8 +175,8 @@ ______________________________________________________________________
 ```ruby
 let(:listings) do
   [
-    { 'title' => 'Cheap', 'price' => { 'amount' => '100.00', 'display' => '$100' }, 'photos' => [{ '_links' => { 'thumbnail' => { 'href' => 'img.png' } } }] },
-    { 'title' => 'Expensive', 'price' => { 'amount' => '900.00', 'display' => '$900' }, 'photos' => [{ '_links' => { 'thumbnail' => { 'href' => 'img.png' } } }] }
+    { 'title' => 'Cheap', 'price' => { 'amount' => '100.00', 'amount_cents' => 10000, 'display' => '$100' }, 'photos' => [{ '_links' => { 'thumbnail' => { 'href' => 'img.png' } } }] },
+    { 'title' => 'Expensive', 'price' => { 'amount' => '900.00', 'amount_cents' => 90000, 'display' => '$900' }, 'photos' => [{ '_links' => { 'thumbnail' => { 'href' => 'img.png' } } }] }
   ]
 end
 
@@ -193,7 +216,8 @@ ______________________________________________________________________
 | -- | -- |
 | Client vs server sort | "Sorting client-side is instant and works for the 10 items we have. If paginated, sorting must be server-side or you're only sorting one page." |
 | Sort + pagination conflict | "If I sort 10 items client-side but there are 1000 total, the sort is misleading. The API's sort param would be needed." |
-| Number parsing | "I'm parsing `amount` as float. For currency, integer cents would be safer to avoid floating point issues, but the API gives us a string decimal." |
+| **`amount` is a string** | "The API returns `amount` as a string (`\"450.00\"`). Sorting without casting gives lexicographic order where `\"95\" > \"450\"`. I cast to float, but `amount_cents` (integer) is even safer." |
+| Number parsing | "Using `amount_cents` (integer) avoids float precision issues entirely. It's already in the response — no reason to parse strings when the API gives us an int." |
 | Active state on sort buttons | "I'd visually indicate which sort is currently active" |
 | Multi-field sort | "With more time, could sort by price, date listed, condition, etc. A dropdown would replace individual buttons." |
 
@@ -253,14 +277,14 @@ def listings():
     sort = request.args.get('sort')
 
     if sort == 'price_asc':
-        results.sort(key=lambda l: float(l['price']['amount']))
+        results.sort(key=lambda l: l['price']['amount_cents'])
     elif sort == 'price_desc':
-        results.sort(key=lambda l: float(l['price']['amount']), reverse=True)
+        results.sort(key=lambda l: l['price']['amount_cents'], reverse=True)
 
     return render_template('listings.html', listings=results, sort=sort)
 ```
 
-**What to say:** "I'm sorting in Python after fetching. `list.sort()` is in-place and takes a `key` function. I convert the amount string to float for numeric comparison. The `reverse=True` parameter handles descending. I pass `sort` to the template so it can highlight the active button."
+**What to say:** "I'm sorting in Python after fetching. `list.sort()` is in-place and takes a `key` function. I use `amount_cents` (an integer) instead of parsing the string `amount` to float — this avoids both lexicographic sort bugs and floating-point precision issues. `reverse=True` handles descending. I pass `sort` to the template so it can highlight the active button."
 
 **Python idiom:** `list.sort(key=...)` is more efficient than `sorted(...)` when you don't need to keep the original order — it sorts in-place without creating a new list.
 
@@ -270,9 +294,9 @@ def listings():
 def _sort_key(listing):
     """Extract price for sorting, defaulting to 0 for listings without price."""
     try:
-        return float(listing['price']['amount'])
-    except (KeyError, TypeError, ValueError):
-        return 0.0
+        return listing['price']['amount_cents']
+    except (KeyError, TypeError):
+        return 0
 ```
 
 Then use: `results.sort(key=_sort_key)`
@@ -291,12 +315,12 @@ def priced_client():
         'listings': [
             {
                 'title': 'Expensive Guitar',
-                'price': {'amount': '900.00', 'display': '$900'},
+                'price': {'amount': '900.00', 'amount_cents': 90000, 'display': '$900'},
                 'photos': [{'_links': {'thumbnail': {'href': 'https://img.com/exp.jpg'}}}]
             },
             {
                 'title': 'Cheap Guitar',
-                'price': {'amount': '100.00', 'display': '$100'},
+                'price': {'amount': '100.00', 'amount_cents': 10000, 'display': '$100'},
                 'photos': [{'_links': {'thumbnail': {'href': 'https://img.com/cheap.jpg'}}}]
             }
         ]
@@ -351,8 +375,8 @@ def test_active_sort_button_highlighted(priced_client):
 
 | Aspect | Rails approach | Flask approach |
 | -- | -- | -- |
-| Sort logic | `listings.sort_by { \|l\| l['price']['amount'].to_f }` | `results.sort(key=lambda l: float(l['price']['amount']))` |
-| Descending | `sort_by { \|l\| -amount }` (negate) | `sort(..., reverse=True)` — more explicit |
+| Sort logic | `listings.sort_by { \|l\| l['price']['amount_cents'] }` | `results.sort(key=lambda l: l['price']['amount_cents'])` |
+| Descending | `sort_by { \|l\| -amount_cents }` (negate) | `sort(..., reverse=True)` — more explicit |
 | Active class in view | ERB conditional `<%= 'active' if ... %>` | `{% if sort == 'price_asc' %}active{% endif %}` |
 | In-place sort | `sort_by!` mutates | `.sort()` mutates (or `sorted()` for new list) |
 | Link helper | `link_to 'Price ↑', listings_path(sort: ...)` | `<a href="{{ url_for(...) }}">` |
