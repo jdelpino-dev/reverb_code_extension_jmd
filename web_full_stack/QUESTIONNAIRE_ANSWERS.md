@@ -4,7 +4,7 @@ ______________________________________________________________________
 
 ## Q1. "Walk me through what happens when a user visits /categories and submits a search."
 
-"When a user hits `/categories?query=guitar`, Flask matches it to the `categories` route function in `app.py`. That function reads `query` from `request.args`, then calls `_search_categories(query)`. That helper instantiates `ReverbClient`, calls `.categories()` which makes a GET to `https://api.reverb.com/api/categories/flat` with JSON headers. The response comes back as a list of category dicts. We filter them in Python using a lambda that checks if the query string appears in each category's `full_name` (case-insensitive). The filtered list gets passed to `render_template('categories.html', categories=...)`, which iterates over them in Jinja2 and renders each as a list item. If no matches, the template shows a 'no results' message."
+"When a user hits `/categories?query=guitar`, Flask matches it to the `categories` route function in `app.py`. That function reads `query` from `request.args`, then calls `_search_categories(query)`. That helper instantiates `ReverbClient`, calls `.categories()`  on it, which makes a GET to `https://api.reverb.com/api/categories/flat` with JSON headers. The response comes back as a list of category dicts. We filter them in Python using a lambda that checks if the query string appears in each category's `full_name` (case-insensitive). The filtered list gets passed to `render_template('categories.html', categories=...)`, which iterates over them in Jinja2 and renders each as a list item. If no matches, the template shows a 'no results' message."
 
 **Key points hit:** route → handler → client → HTTP call → filter logic → template render → conditional display.
 
@@ -190,7 +190,7 @@ ______________________________________________________________________
 
 "Flask Blueprints. I'd split routes by resource:
 
-```
+```plaintext
 app/
   __init__.py          # create_app factory
   categories/
