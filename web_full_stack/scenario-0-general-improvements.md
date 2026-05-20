@@ -105,13 +105,29 @@ ______________________________________________________________________
 
 ### 6. Environment-based secret key
 
-**Already done:**
+**Added** (not present in original code):
 
 ```python
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 ```
 
-**Why:** Hardcoded secrets are a security issue in production. Using `os.environ.get()` with a dev fallback is the standard Flask pattern.
+**Why:** Flask's `flash()` stores messages in the session, which requires a secret key. The original code had none, so adding flash messages required adding this. Using `os.environ.get()` with a dev fallback keeps it safe for demo code while remaining production-ready. Having a session already configured also opens the door for other client-side state (e.g., user preferences, CSRF tokens) as the app grows.
+
+______________________________________________________________________
+
+### 7. Enabling Flask sessions for the application
+
+By setting `app.secret_key`, we activate Flask's signed cookie-based session. This is a foundational capability that benefits the app well beyond flash messages:
+
+- **Flash messages** — the immediate reason; `flash()` writes to the session
+- **CSRF protection** — any form submission needs a token stored in the session
+- **User preferences** — remember sort order, per-page count, or last-viewed category across requests
+- **Authentication state** — if login is ever added, session stores the authenticated user
+- **Rate limiting / abuse detection** — track request counts per session without a database
+- **Multi-step workflows** — wizard forms or search refinement that span multiple requests
+- **Shopping cart / saved searches** — temporary user state before committing to a backend
+
+The cost is one line of configuration and a cookie per client. The benefit is that the app is now ready for any feature that needs request-to-request memory without requiring a database or external session store.
 
 ______________________________________________________________________
 
