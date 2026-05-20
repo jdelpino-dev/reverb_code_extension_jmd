@@ -272,7 +272,7 @@ ______________________________________________________________________
 
 ## Q20. "You've been coding for 10 minutes and realize your approach has a flaw. What do you do?"
 
-"I say it out loud immediately: 'Actually, I just realized this won't work because [specific reason].' Then I propose the correction: 'I think the better approach is [alternative]. Let me refactor this.'
+"I say it out loud immediately: 'Actually, I just realized this won't work because (specific reason).' Then I propose the correction: 'I think the better approach is (alternative). Let me refactor this.'
 
 I don't try to make the flawed approach work. I don't pretend I didn't notice. The interviewer wants to see how I recover, not that I'm perfect. Pivoting cleanly shows maturity.
 
