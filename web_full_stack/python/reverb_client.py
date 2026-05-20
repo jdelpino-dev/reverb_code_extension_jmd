@@ -17,7 +17,8 @@ class ReverbClient:
     def categories(self):
         return self._get("/categories/flat")["categories"]
 
-    def _get(self, path, params={}):
+    # Fixed a BUG summoning issue: mutable parameters: params={} _> params=None
+    def _get(self, path, params=None):
         return requests.get(
             self._base_uri + path, headers=self.HEADERS, params=params
         ).json()
