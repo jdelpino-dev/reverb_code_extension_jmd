@@ -29,7 +29,7 @@ run = "cd web_full_stack/js && rm -rf node_modules && npm install"
 
 [tasks."setup:web-ruby"]
 description = "Setup web_full_stack/ruby (Rails)"
-run = "cd web_full_stack/ruby && rm -rf vendor/bundle && bundle install"
+run = "cd web_full_stack/ruby && rm -rf vendor/bundle && bundle config set --local path vendor/bundle && bundle install"
 
 [tasks."setup:data"]
 description = "Setup data/python challenge (uv + Python 3.10+)"
