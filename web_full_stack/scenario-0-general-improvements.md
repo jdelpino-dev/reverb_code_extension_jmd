@@ -96,7 +96,7 @@ elif not categories:
     flash(f"No category results for: {query}...", "info")
 ```
 
-**Why:** User feedback is part of the service layer's responsibility. The template just renders flash messages — the route decides when to show them.
+**Why:** Flash messages are a presentation concern — they belong in the route, not the service. The route inspects the result (empty query, no matches) and decides *when* to flash. The message strings themselves are view-layer content (like templates) and could be extracted to a constants module alongside the templates — together they form the view layer. This keeps the service framework-agnostic and reusable, and the route free of hardcoded user-facing copy. But for now, at this scale this is fine.
 
 ______________________________________________________________________
 
