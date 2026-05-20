@@ -165,6 +165,145 @@ is exercised in integration tests.
 
 ---
 
+## Architecture Considerations per Interview Scenario
+
+The architectural choices (and gaps) in this codebase have concrete consequences
+for each feature you might be asked to implement. The central theme: **listings
+skips the service layer**, and that debt compounds across scenarios.
+
+### Scenario 1: Listing Detail Page
+
+- **No service helper needed** — fetching a single listing by ID is a straight
+  client→route pass-through (like current listings). No filtering/coordination.
+- **But** if you skip adding `_load_listing(id)`, you perpetuate the
+  inconsistency. Mention: "I'll add it for consistency," then keep it thin.
+- **Raw dicts with no Model** — `listing['photos'][0]['_links']['large_crop']['href']`
+  is deeply nested key access. One missing key = crash. The codebase has no error
+  handling ("happy path only").
+
+### Scenario 2: Search / Filter Listings
+
+- **This is where you fix the inconsistency.** The main architectural issue is
+  "listings skips the service layer." Adding `_search_listings(query)` mirrors
+  `_search_categories(query)` — the architecture tells you exactly where it goes.
+- **Decision point:** client-side filter (like categories does — fetch ALL, then
+  filter in Python) vs. pass `query` to the API? The Reverb API supports `query`
+  natively on `/listings/all` — architecturally cleaner to let the API filter
+  rather than downloading everything.
+- **Implication:** If you choose API-side filtering, `_search_listings` becomes a
+  thin wrapper that passes the query through. If you choose client-side, it
+  becomes a `_load_listings()` + filter pattern (matching categories).
+
+### Scenario 3: Pagination
+
+- **Explicitly belongs in the service layer** — the "What's Intentionally
+  Missing" table above says so directly. This is the scenario that justifies
+  `_load_listings()` existing as a service boundary.
+- **Breaking change to the client:** Currently `listings()` returns
+  `self._get(...)['listings']` (unwraps the response). Pagination needs metadata
+  (`current_page`, `total_pages`). You must change the return type. The client's
+  job (per the architecture table) is "headers, URLs, JSON parsing" — returning
+  the full response is still within scope.
+- **The mutable default arg becomes real:** `_get(self, path, params={})` is
+  noted as "harmless since never mutated." But if you add `params['page'] = page`
+  inside `_get` or in a caller that passes the same dict, the default persists
+  across calls. This is the scenario where the gotcha stops being theoretical.
+
+### Scenario 4: Category → Listings Navigation
+
+- **Connects two parallel paths.** The architecture diagram shows categories and
+  listings as independent vertical stacks. This scenario adds a horizontal link
+  between them (category → filtered listings).
+- **`base_uri` injectable via constructor** — the client is already designed for
+  configurability. Adding a `category` param is trivial at the client level.
+- **No input validation** (noted as "not implemented"). Category slugs from the
+  API are safe, but if you accept user-typed slugs in the URL, you're passing
+  untrusted input directly to the external API.
+
+### Scenario 5: Error Handling
+
+- **The codebase is most explicit about this gap:** "No error handling: no
+  try/except, no status code checks. Happy path only." The architecture table
+  tells you where it goes: "Service layer (try/except) + flash messages in
+  templates."
+- **`_get` has no status check** — `response.json()` will raise `JSONDecodeError`
+  on non-JSON error responses (e.g., HTML error pages from a proxy).
+- **Two failure modes in `_get`:**
+  1. HTTP error status (4xx/5xx) — `response.ok` is `False`.
+  2. Network failure — `requests.get` raises `ConnectionError`/`Timeout`.
+  Both need handling, and both should surface as the same custom exception to the
+  service/route layer.
+- **The mutable default becomes dangerous** if you add retry logic that mutates
+  the params dict between attempts.
+
+### Scenario 6: Price Display + Sort
+
+- **Sort is business logic → service layer.** But listings has no service layer.
+  You either: (a) add `_sort_listings(listings, order)` first, or (b) inline it
+  in the route and accept the architectural debt.
+- **Raw dicts, no Model** — `listing['price']['amount']` requires nested keys to
+  exist. Listings without prices (drafts, auction-style, "Call for price") will
+  crash `float()`. No data class validates the shape before the template sees it.
+- **No input validation** — the `sort` query param arrives as a raw string.
+  `sort=evil` falls through to unsorted (safe by accident, not by design).
+  Explicit validation would reject unknown sort values.
+
+### The Compound Effect
+
+The walkthrough's central insight — **"listings skips the service layer"** —
+compounds across scenarios:
+
+```text
+Scenario 2: Sort logic goes... where? Inline in the route.
+Scenario 3: Pagination coordination goes... inline in the route.
+Scenario 5: Error handling wraps... the entire route body.
+Scenario 6: Sort + pagination + error handling = 20 lines of logic in one route function.
+```
+
+If you fix it early (add `_load_listings()` in Scenario 1 or 2), every
+subsequent scenario has a clean place to add logic. If you don't, the route
+function grows into a god-function that's untestable in isolation:
+
+```python
+# Without service layer — everything in one route
+@app.route('/listings')
+def listings():
+    page = request.args.get('page', 1, type=int)
+    sort = request.args.get('sort')
+    category = request.args.get('category')
+    try:
+        results = ReverbClient().listings(page=page, category=category)
+        listings = results['listings']
+        if sort == 'price_asc':
+            listings.sort(key=lambda l: float(l['price']['amount']))
+        elif sort == 'price_desc':
+            listings.sort(key=lambda l: float(l['price']['amount']), reverse=True)
+    except ApiError:
+        listings = []
+        flash("Unable to load listings.")
+    return render_template('listings.html', listings=listings, ...)
+
+# With service layer — route is thin, logic is testable
+@app.route('/listings')
+def listings():
+    page = request.args.get('page', 1, type=int)
+    sort = request.args.get('sort')
+    category = request.args.get('category')
+    try:
+        listings, pagination = _load_listings(page=page, category=category)
+        listings = _sort_listings(listings, sort)
+    except ApiError:
+        listings, pagination = [], {}
+        flash("Unable to load listings.")
+    return render_template('listings.html', listings=listings, **pagination)
+```
+
+**Interview signal:** Recognizing this early and saying "let me add the service
+boundary first, then build the feature on top" shows architectural thinking —
+the ability to identify structural debt before it causes pain.
+
+---
+
 ## Running the App
 
 ```bash
