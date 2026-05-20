@@ -7,6 +7,26 @@
 
 ---
 
+## Summary
+
+This report documents a hands-on exploration of Reverb's public API surface — the set of endpoints accessible without authentication. It covers response structure, caching behavior, pagination strategies, HAL+JSON conventions, and the full catalog of publicly available routes.
+
+### General Character of the Public Endpoints
+
+Reverb's public endpoints form a cohesive, well-designed read surface oriented toward marketplace consumption and client-building. The API is hypermedia-driven: every response includes navigational links that encode what actions are available and where related resources live, so clients discover capabilities at runtime rather than hardcoding URL patterns. Responses are uniformly structured with consistent field naming, predictable nesting, and clear separation between scalar metadata, nested domain objects, and link affordances. The caching strategy is intentional and differentiated — stable reference data is aggressively edge-cached while volatile transactional data is always fresh. Pagination is search-oriented rather than export-oriented, with caps that protect system stability and data integrity on a live marketplace. The endpoints collectively cover the full read-side surface a client needs: taxonomy, product browsing, reference metadata (conditions, currencies, regions, carriers), editorial content, pricing intelligence, and search suggestions. Header-driven content negotiation (language, currency, shipping region) allows the same endpoints to serve localized experiences worldwide without URL proliferation.
+
+### Key Insights at a Glance
+
+- **Pragmatic HAL:** The API uses `_links` extensively for HATEOAS navigation but skips `_embedded` entirely, inlining related data as plain JSON properties for simpler consumption.
+- **Caching is binary and intentional:** Reference data gets 24-hour CDN caching with ETag support; marketplace data is never cached.
+- **Pagination caps are a feature, not a bug:** The 50-page window on search results protects infrastructure and data freshness; partition queries to reach more data.
+- **The API is one unified surface:** There is no separate "public API" — the same endpoints serve anonymous reads and authenticated mutations, differentiated only by token presence and scopes.
+- **Headers shape the response:** Version, language, currency, and shipping region headers materially alter what data comes back from the same URL.
+- **16 endpoints work without auth:** Covering taxonomy, listings, conditions, currencies, geography, shipping, collections, pricing, editorial content, and search suggestions.
+- **Link-driven design is enforced:** Clients must not construct URLs — they follow `_links` to discover actions, navigate pages, and transition between resources.
+
+---
+
 ## 1. What is HAL+JSON?
 
 **HAL** stands for **Hypertext Application Language**. It is a convention for defining hypermedia (links and embedded resources) in JSON responses. The formal media type is `application/hal+json`, defined in the [IETF Internet Draft](https://datatracker.ietf.org/doc/html/draft-kelly-json-hal) by Mike Kelly.
@@ -55,6 +75,26 @@ Content-Type: application/hal+json
 
 The server responds with `Content-Type: application/hal+json` and `X-Reverb-Version: 3.0`.
 
+### 2.1.1 The `Accept` Header is a Documentation Convention, Not a Requirement
+
+The `Accept` header has **zero effect** on the response. Verified across 5 variations:
+
+| Sent `Accept` | Response `Content-Type` | HTTP Status |
+|---|---|---|
+| `application/hal+json` | `application/hal+json` | 200 |
+| `application/json` | `application/hal+json` | 200 |
+| `*/*` | `application/hal+json` | 200 |
+| `text/html` | `application/hal+json` | 200 |
+| *(omitted entirely)* | `application/hal+json` | 200 |
+
+Three notable details:
+
+1. **`Content-Type` is always present in the response** — it is never absent, always `application/hal+json`.
+2. **No `406 Not Acceptable`** — a proper HTTP content-negotiating server should reject `Accept: text/html` with a 406 if it cannot serve that format. Reverb does not. The `Accept` header is silently ignored.
+3. **The `Vary` header is the tell** — the response includes `Vary: Accept-Language, Accept-Version, X-Display-Currency, ...` but notably `Accept` is **not** in that list. This is the server self-documenting that it does not vary its output based on the `Accept` header, which is consistent with ignoring it entirely.
+
+So `Accept: application/hal+json` is a documentation convention (signaling intent to consume HAL), not a technical requirement for receiving a response.
+
 ### 2.2 Use of `_links`
 
 Reverb uses `_links` extensively at **two levels**:
@@ -86,6 +126,59 @@ Reverb uses extensive `Vary` headers to enable edge caching based on locale, cur
 ```plaintext
 Vary: Accept-Language, Accept-Version, X-Display-Currency, X-Shipping-Region, X-Item-Region, X-Postal-Code
 ```
+
+#### Does the `Accept` header change the response?
+
+No. The Reverb API **does not perform content negotiation** on the `Accept` request header. It always returns `application/hal+json` regardless of what — or whether — you send an `Accept` header. This was verified across four variations:
+
+```bash
+# Variation A — correct HAL header (recommended)
+curl -s -I -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" | grep -i content-type
+# → content-type: application/hal+json
+
+# Variation B — plain JSON
+curl -s -I -H "Accept: application/json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" | grep -i content-type
+# → content-type: application/hal+json   ← same
+
+# Variation C — wildcard
+curl -s -I -H "Accept: */*" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" | grep -i content-type
+# → content-type: application/hal+json   ← same
+
+# Variation D — completely wrong type
+curl -s -I -H "Accept: text/html" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" | grep -i content-type
+# → content-type: application/hal+json   ← same, no 406 returned
+
+# Variation E — no Accept header at all
+curl -s -I -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" | grep -i content-type
+# → content-type: application/hal+json   ← same
+```
+
+The body structure is also identical across all variations — the `_links` field, all keys, and all values are the same:
+
+```bash
+# Body key comparison: hal+json vs plain json Accept — categories
+curl -s -H "Accept: application/hal+json" ... | jq '.categories[0] | keys'
+curl -s -H "Accept: application/json"    ... | jq '.categories[0] | keys'
+# → identical output in both cases: ["_links", "collection_title", "full_name", ...]
+
+# Body key comparison: hal+json vs json vs no-header — listings
+curl -s -H "Accept: application/hal+json" ... | jq '.listings[0] | keys'
+curl -s -H "Accept: application/json"    ... | jq '.listings[0] | keys'
+curl -s                                   ... | jq '.listings[0] | keys'
+# → identical output in all three cases: ["_links", "auction", "buyer_price", ...]
+```
+
+**What this means in practice:**
+
+- The server **always** includes `Content-Type: application/hal+json` in every response.
+- Sending `Accept: application/hal+json` is a convention the Reverb docs require, but the server does not enforce or vary on it — it is essentially documentation-driven, not technically enforced.
+- Sending an unsupported type like `Accept: text/html` does **not** return a `406 Not Acceptable` error, which would be the correct HTTP/1.1 behaviour for a server that truly negotiates content.
+- The `Vary: Accept-Language,Accept-Version,...` response header notably does **not** include `Accept` itself, which is consistent with the server ignoring it for format negotiation.
 
 ### 2.6 Caching Behavior
 
@@ -956,11 +1049,227 @@ Not used in this endpoint either.
 
 ---
 
-## 5. Complete Command Reference
+## 5. Other Public Endpoints (No Auth Required)
+
+The API root (`GET /api`) exposes a `_links` map that serves as the entry point for discovery. Beyond the two endpoints explored in depth above, the following endpoints return `200 OK` without any authentication token. They provide reference/metadata useful for building clients that consume listings and categories.
+
+### 5.1 `/api/listing_conditions`
+
+Returns the condition taxonomy used across all listings.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/listing_conditions" | jq '.conditions[] | {display_name, uuid}'
+```
+
+**Response:** `{ "conditions": [...] }` — array of 8 condition objects.
+
+| `display_name` | `uuid` |
+|---|---|
+| Brand New | `7c3f45de-2ae0-4c81-8400-fdb6b1d74890` |
+| Mint | `ac5b9c1e-dc78-466d-b0b3-7cf712967a48` |
+| Excellent | `df268ad1-c462-4ba6-b6db-e007e23922ea` |
+| Very Good | `ae4d9114-1bd7-4ec5-a4ba-6653af5ac84d` |
+| Good | `f7a3f48c-972a-44c6-b01a-0cd27488d3f6` |
+| Fair | `98777886-76d0-44c8-865e-bb40e669e934` |
+| Poor | `6a9dfcad-600b-46c8-9e08-ce6e5057921e` |
+| Non Functioning | `fbf35668-96a0-4baa-bcde-ab18d6b1b329` |
+
+Each object also has a `description` field explaining the condition semantics.
+
+**Dual-mode behavior:** When called with a shop's API token, this endpoint returns only the conditions that shop is authorized to use (e.g., B-Stock and Mint with inventory are restricted to enabled accounts).
+
+### 5.2 `/api/currencies/display`
+
+Returns the list of currencies buyers can use for price display (via `X-Display-Currency` header).
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/currencies/display"
+```
+
+**Response:** `{ "currencies": ["USD", "CAD", "EUR", "GBP", "AUD", "JPY", "NZD", "MXN", "DKK", "SEK", "CHF", "BRL", "HKD", "NOK", "PHP", "PLN"] }` — 16 display currencies.
+
+### 5.3 `/api/currencies/listing`
+
+Returns the list of currencies sellers can use when creating listings.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/currencies/listing"
+```
+
+**Response:** `{ "currencies": ["USD", "CAD", "EUR", "GBP", "AUD", "JPY", "NZD", "MXN"] }` — 8 listing currencies (subset of display currencies).
+
+### 5.4 `/api/countries`
+
+Returns all 241 countries with subregion data (used for shipping address forms).
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/countries" | jq '.countries | length'
+# 241
+```
+
+**Object schema:** `{ country_code, name, subregion_required, subregions: [{ code, name, id }] }`
+
+### 5.5 `/api/shipping/regions`
+
+Returns the 8 top-level shipping regions with nested country children. These codes correspond to the `region_code` values seen in listing shipping rates.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/shipping/regions" | jq '[.shipping_regions[] | .code]'
+# ["XX", "AFRICA", "ASIA", "EUR_NON_EU", "EUR_EU", "NORTH_AMERICA", "OCEANIA", "SOUTH_AMERICA"]
+```
+
+**Object schema:** `{ code, name, region_type, children: [{ code, name, region_type, children }], shipping_rate_name }`
+
+Region types: `everywhere_else`, `superregion`, `country`.
+
+### 5.6 `/api/shipping/providers`
+
+Returns the list of supported shipping carriers (used when providing tracking info).
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/shipping/providers" | jq '[.shipping_providers[] | .name]'
+```
+
+**Response:** 30 providers including UPS, USPS, FedEx, DHL (multiple variants), Canada Post, Royal Mail, Australia Post, La Poste, GLS, DPD, and Others.
+
+### 5.7 `/api/categories` (Hierarchical)
+
+Unlike `/api/categories/flat` (which returns all 320 categories in a flat array), this endpoint returns only the **14 root categories** with a `subcategories` array nested inside each.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories" | jq '.categories | length'
+# 14
+```
+
+**Object schema:** Same as flat categories but adds `subcategories: [...]` field. Useful when building hierarchical navigation UI.
+
+### 5.8 `/api/collections`
+
+Returns curated editorial collections (hand-picked listing groups). Each collection includes links to its listings.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/collections" | jq '.collections | length'
+# 11
+```
+
+**Object schema:** `{ name, description, _links: { image, self, listings, follow } }`
+
+Example collection: "Best of Used: Deals & Steals" — `_links.listings.href` points to `GET /api/listings?curated_set_id=8`.
+
+### 5.9 `/api/priceguide`
+
+Returns paginated price guide entries (~116K total products). Price guides provide historical market pricing data for specific make/model/year combinations.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/priceguide" | jq '{total, total_pages, current_page}'
+# { "total": 116279, "total_pages": 4845, "current_page": 1 }
+```
+
+**Object schema:** `{ id, title, make, model, year, finish, categories, description, _links }`
+
+**Note:** This endpoint reports `total_pages: 4845` — significantly more than the listings cap of 50, suggesting price guides use a different (or no) pagination cap.
+
+### 5.10 `/api/articles`
+
+Returns paginated editorial articles (gear news, reviews, guides).
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/articles" | jq '{total, total_pages, current_page}'
+```
+
+**Object schema:** `{ id, title, summary, author_name, author_email, published_at, categories, photo, horizontal_photo, square_photo, _links }`
+
+Also available: `GET /api/articles/featured` — returns featured/promoted articles.
+
+### 5.11 `/api/autocomplete?query=...`
+
+Returns make and model suggestions for search form autocomplete.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/autocomplete?query=fender" | jq 'keys'
+# ["makes", "models"]
+```
+
+**Response:** `{ "makes": ["Fender", ...], "models": [...] }` — arrays of brand/model name strings.
+
+### 5.12 `/api/autosuggest?query=...`
+
+Returns rich search suggestions grouped by section (searches, categories, shops, etc.) with full HAL `_links` to listings and web pages.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/autosuggest?query=fender" | jq '.sections | keys'
+# ["searches"]
+```
+
+**Response:** `{ "original": "fender", "sections": { "searches": { "name": "Suggested Searches", "results": [...] } } }`
+
+Each suggestion includes `_links.web.href` and `_links.listings.href` plus contextual sub-suggestions (e.g., "Fender in Parts").
+
+### 5.13 `/api/listings/{id}` (Single Listing)
+
+Individual listing detail — returns significantly more data than the collection view.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/listings/97305407" | jq 'keys | length'
+# 46 keys (vs ~28 in collection view)
+```
+
+**Additional fields** not present in the collection view: `accepted_payment_methods`, `cloudinary_photos`, `draft`, `handmade`, `has_offer_for_buyer`, `in_watchlist`, `is_my_listing`, `live`, `local_pickup_only`, `location`, `offer_count`, `payment_policy`, `return_policy`, `same_day_shipping_ineligible`, `shipping_policy`, `sold_as_is`, `stats`, `upc_does_not_apply`, `videos`.
+
+**Photos:** Returns all photos (e.g., 3) rather than just 1 in the collection view.
+
+### 5.14 `/api/shops/{slug}`
+
+Returns public shop/seller profile information.
+
+```bash
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/shops/micarellimusic" | jq '{name, preferred_seller, quick_responder, quick_shipper, feedback_count}'
+```
+
+**Key fields:** `id`, `name`, `description`, `address`, `avatar`, `banner`, `preferred_seller`, `quick_responder`, `quick_shipper`, `feedback_count`, `on_vacation`, `payment_methods`, `payment_policy`, `direct_checkout`, `_links`.
+
+### 5.15 Summary Table
+
+| Endpoint | Purpose | Paginated | Key for |
+|---|---|---|---|
+| `/api/categories/flat` | All 320 subcategories, flat | No | Category filtering |
+| `/api/categories` | 14 root categories with nested subcategories | No | Hierarchical navigation |
+| `/api/listings/all` | Marketplace search/browse | Yes (capped at 50 pages) | Product listing |
+| `/api/listings/{id}` | Single listing detail | No | Detail page |
+| `/api/shops/{slug}` | Public seller profile | No | Seller pages |
+| `/api/listing_conditions` | 8 condition levels | No | Filter/form UI |
+| `/api/currencies/display` | 16 display currencies | No | Currency selection |
+| `/api/currencies/listing` | 8 listing currencies | No | Seller forms |
+| `/api/countries` | 241 countries + subregions | No | Address forms |
+| `/api/shipping/regions` | 8 shipping superregions | No | Shipping config |
+| `/api/shipping/providers` | 30 carriers | No | Tracking forms |
+| `/api/collections` | 11 curated sets | No | Editorial features |
+| `/api/priceguide` | ~116K price guides | Yes (4845 pages) | Market pricing |
+| `/api/articles` | Editorial content | Yes | Content/SEO |
+| `/api/autocomplete?query=` | Make/model suggestions | No | Search typeahead |
+| `/api/autosuggest?query=` | Rich search suggestions with links | No | Search UI |
+
+---
+
+## 6. Complete Command Reference
 
 Below is the full list of every `curl | jq` command used in this exploration, in the order they were executed.
 
-### 5.1 Categories Endpoint Commands
+### 6.1 Categories Endpoint Commands
 
 ```bash
 # 1. Top-level keys
@@ -1107,7 +1416,7 @@ curl -s \
   | sort_by(.depth)'
 ```
 
-### 5.2 Listings Endpoint Commands
+### 6.2 Listings Endpoint Commands
 
 ```bash
 # 13. Top-level keys
@@ -1287,29 +1596,33 @@ curl -s -I \
 
 ---
 
-## 6. Key Observations Summary
+## 7. Key Observations Summary
 
 1. **HAL compliance is pragmatic, not pure** — Reverb relies heavily on `_links` but does not use `_embedded`; related resources are inlined as ordinary JSON properties. However, `_links` usage is meaningful and intentional — they are operational affordances, not decoration.
 2. **Links are the canonical navigation mechanism** — Reverb explicitly warns developers not to construct URLs manually. Clients must follow `_links` to discover resource actions and transition endpoints. Links can represent verbs (`add_to_wishlist`) or nouns (`lists`), and endpoints may support only subsets of HTTP methods.
-3. **Categories are flat, not hierarchical** — All 320 subcategories are returned in a single flat array. Parent-child relationships are expressed via `root_uuid` / `root_slug` rather than nesting.
+3. **Categories are available in two complementary forms** — `/api/categories/flat` returns all 320 subcategories as a denormalized flat array (hierarchy encoded in `full_name`), while `/api/categories` returns only the 14 root nodes with nested `subcategories`. Clients choose the shape that suits their UI pattern (flat filter list vs. hierarchical tree navigation).
 4. **Listings pagination is search-window paginated, not cursor-export paginated** — Despite ~2.5M total listings, `total_pages` is capped at 50 per query. The cap protects search infrastructure, marketplace data, cache efficiency, and page stability on a live marketplace. To access listings outside the result window, partition queries using category, condition, price range, make/model, and shipping region filters, then deduplicate by listing ID.
-5. **No authentication required for public reads** — Both endpoints explored work without auth tokens. However, the boundary is not "public API vs. private API" — it is one unified API where anonymous calls can read some resources, while account-scoped and mutating calls require Bearer tokens.
-6. **Action links show domain capabilities, not anonymous permission** — Public listing responses include links like `cart`, `watchlist`, and `make_offer`. Their presence means the resource supports that action in the Reverb domain model. Executing the action still requires the correct HTTP method, authentication, scope, and account state.
-7. **Caching differs by endpoint** — Categories are edge-cached for 24 hours; listings are never cached (`no-cache`).
-8. **Photos are HAL sub-resources** — The `photos` array uses `_links` internally (with `large_crop`, `small_crop`, `full`, `thumbnail`), making photos the closest thing to `_embedded` resources in the response.
-9. **Price is consumer-friendly and machine-friendly** — Prices include `amount` (string), `amount_cents` (integer), `currency`, `symbol`, and `display` (formatted), giving consumers flexibility for both display and computation.
-10. **Headers materially affect response shape** — `Accept-Version` defaults to 1.0; 3.0 is the current recommended version. `Accept-Language`, `X-Display-Currency`, and `X-Shipping-Region` can alter localization, price display, and listing visibility. The same endpoint can return different data depending on these headers.
-11. **Additional public read endpoints exist** — Beyond the two explored here, the API also exposes `GET /api/listing_conditions`, `GET /api/currencies/display`, and `GET /api/currencies/listing` without authentication.
-12. **Some metadata endpoints are dual-mode** — Endpoints like `/api/listing_conditions` work anonymously (returning general metadata) but return account-specific availability when called with a shop token (e.g., B-Stock and Mint conditions are only available to enabled accounts).
-13. **Rate limits are behaviorally enforced** — Reverb returns 429 responses for excessive volume but does not publish precise quotas. Apps with higher requirements can request increases. A mature integration should include rate-limit backoff, pagination via `_links.next`, and throttled requests.
+5. **Pagination strategy varies by endpoint purpose** — The 50-page cap applies to volatile search results (`/api/listings/all`), but reference endpoints like `/api/priceguide` report 4,845 pages with no apparent cap. This reveals an intentional architectural choice: caps apply where deep pagination is unstable or abusable (live marketplace results), not where the data is stable and sequential (price history records).
+6. **No authentication required for public reads** — Both endpoints explored work without auth tokens. However, the boundary is not "public API vs. private API" — it is one unified API where anonymous calls can read some resources, while account-scoped and mutating calls require Bearer tokens.
+7. **Action links show domain capabilities, not anonymous permission** — Public listing responses include links like `cart`, `watchlist`, and `make_offer`. Their presence means the resource supports that action in the Reverb domain model. Executing the action still requires the correct HTTP method, authentication, scope, and account state.
+8. **Caching is binary and intentional** — Categories are edge-cached for 24 hours with ETag/conditional GET support (saving ~312 KB per poll); listings are never cached (`no-cache`, `cf-cache-status: MISS`). There is no middle ground — an endpoint is either fully cacheable or fully dynamic. This reflects the volatility profile of the underlying data.
+9. **ETags enable bandwidth-efficient polling** — The categories endpoint supports `If-None-Match` conditional requests. Cloudflare validates the ETag at the edge without hitting the origin, returning `304 Not Modified` with zero body transfer. This is the correct pattern for clients that periodically refresh stable reference data.
+10. **Photos are HAL sub-resources** — The `photos` array uses `_links` internally (with `large_crop`, `small_crop`, `full`, `thumbnail`), making photos the closest thing to `_embedded` resources in the response.
+11. **Price is consumer-friendly and machine-friendly** — Prices include `amount` (string), `amount_cents` (integer), `currency`, `symbol`, and `display` (formatted), giving consumers flexibility for both display and computation without requiring client-side currency formatting logic.
+12. **Headers materially affect response shape** — `Accept-Version` defaults to 1.0; 3.0 is the current recommended version. `Accept-Language`, `X-Display-Currency`, and `X-Shipping-Region` can alter localization, price display, and listing visibility. The same endpoint can return different data depending on these headers.
+13. **The public API surface is broad** — 16 publicly accessible endpoints exist (see §5), covering categories, listings, conditions, currencies, countries, shipping regions/providers, collections, price guides, articles, search suggestions, individual listings, and shop profiles. All work without authentication.
+14. **The API root is the HATEOAS entry point** — `GET /api` returns a `_links` map that serves as the discovery surface for the entire API. A properly built client starts here and follows links rather than consulting external documentation for URL patterns.
+15. **Reference data endpoints form a complete client bootstrap** — A client can fully initialize its UI (category filters, condition dropdowns, currency selectors, shipping region pickers, carrier lists) from public reference endpoints alone, before any user interaction or authentication occurs.
+16. **Some metadata endpoints are dual-mode** — Endpoints like `/api/listing_conditions` work anonymously (returning general metadata) but return account-specific availability when called with a shop token (e.g., B-Stock and Mint conditions are only available to enabled accounts).
+17. **Rate limits are behaviorally enforced** — Reverb returns 429 responses for excessive volume but does not publish precise quotas. Apps with higher requirements can request increases. A mature integration should include rate-limit backoff, pagination via `_links.next`, and throttled requests.
 
 ---
 
-## 7. Authenticated API (Side Topic)
+## 8. Authenticated API (Side Topic)
 
 This section is included for architectural context. The interview exercise focuses on public endpoints, but understanding the authenticated surface helps explain design decisions visible in public responses.
 
-### 7.1 One API, Two Access Levels
+### 8.1 One API, Two Access Levels
 
 There is no separate "authenticated API." The same HAL-style API surface serves both anonymous reads and account-scoped operations. The `/my/...` prefix is the strongest indicator of account-scoped endpoints:
 
@@ -1322,7 +1635,7 @@ There is no separate "authenticated API." The same HAL-style API surface serves 
 | | `PUT /api/listings/:id` |
 | | `POST /api/my/orders/selling/:order_number/ship` |
 
-### 7.2 Authentication Model: Personal Access Tokens
+### 8.2 Authentication Model: Personal Access Tokens
 
 Reverb uses **non-expiring Personal Access Tokens** (not OAuth). Tokens are generated from the user profile under "API & Integrations" and assigned scopes. The integration model is:
 
@@ -1332,7 +1645,7 @@ seller creates token → pastes into integration → integration acts as that se
 
 This is oriented toward seller/e-commerce sync integrations (Shopify, BigCommerce, Magento) rather than general consumer-facing third-party apps.
 
-### 7.3 Scopes
+### 8.3 Scopes
 
 | Scope family | What it covers |
 | --- | --- |
@@ -1345,7 +1658,7 @@ This is oriented toward seller/e-commerce sync integrations (Shopify, BigCommerc
 | `read_payouts` | Financial payout reporting |
 | `read_lists` / `write_lists` | Wishlist/watchlist/feed behavior |
 
-### 7.4 Listing State Machine
+### 8.4 Listing State Machine
 
 The authenticated API is not just CRUD — it includes marketplace-state transitions:
 
@@ -1358,7 +1671,7 @@ draft → published/live → ordered/sold/ended
 - `/api/my/listings/:id/state/end` ends a listing.
 - Inventory-enabled listings can auto-end at 0 stock; one-of-a-kind used items are locked after sale.
 
-### 7.5 E-Commerce Sync Design
+### 8.5 E-Commerce Sync Design
 
 The authenticated API is optimized for marketplace synchronization:
 
@@ -1372,11 +1685,11 @@ External SKU changes
 → push shipment/tracking info back to Reverb
 ```
 
-### 7.6 Auth Does Not Remove the Public Search Cap
+### 8.6 Auth Does Not Remove the Public Search Cap
 
 Authentication answers "who are you?" and "what can you mutate?" — it does not transform a public search endpoint into a bulk export endpoint. The 50-page cap on `/api/listings/all` likely remains even with a Bearer token. Auth expands account-scoped capabilities (`/api/my/listings` may paginate your own inventory differently) but should not be assumed to unlock unrestricted traversal of all public listings.
 
-### 7.7 Order Action Links (HATEOAS in Practice)
+### 8.7 Order Action Links (HATEOAS in Practice)
 
 Order responses expose action links that demonstrate HATEOAS beyond what public endpoints show:
 
