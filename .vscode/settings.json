@@ -1,0 +1,14 @@
+{
+  "python-envs.pythonProjects": [
+    {
+      "path": "./web_full_stack/python",
+      "envManager": "ms-python.python:pipenv",
+      "packageManager": "ms-python.python:pip"
+    },
+    {
+      "path": ".",
+      "envManager": "ms-python.python:pipenv",
+      "packageManager": "ms-python.python:pip"
+    }
+  ]
+}

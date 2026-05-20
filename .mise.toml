@@ -12,7 +12,7 @@ ruby = "3.2"
 node = "lts-gallium"
 
 [env]
-PIPENV_VENV_IN_PROJECT = "1"
+PIPENV_VENV_IN_PROJECT = "0"
 FLASK_APP = "app.py"
 FLASK_DEBUG = "1"
 
@@ -20,7 +20,7 @@ FLASK_DEBUG = "1"
 description = "Setup web_full_stack/python (Flask + Pipenv)"
 run = """
 pip install 'pipenv==2024.4.0'
-cd web_full_stack/python && rm -rf .venv Pipfile.lock && pipenv install
+cd web_full_stack/python && (pipenv --rm || true) && rm -f Pipfile.lock && pipenv install
 """
 
 [tasks."setup:web-js"]
