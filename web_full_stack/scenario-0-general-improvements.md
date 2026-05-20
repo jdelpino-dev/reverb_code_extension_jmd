@@ -49,8 +49,11 @@ def _load_listings():
     return ReverbClient().listings()
 ```
 
-**Why:** Establishes a consistent `Route → Service → Client` boundary. Pagination, caching, error handling, and response normalization all belong in the service layer — not in the route.
+**Why:** Establishes a consistent `Route → Service → Client` boundary. The route handles HTTP concerns only: reading request params, triggering the rendering of templates, sending responses, flashing user-facing messages, and translating failures deliberately communicated by the service into HTTP responses. The service layer handles everything below that — calling the client, applying pagination, caching, validating and normalizing responses, and owning all error detection.
 
+Error handling follows the same split. Every spontaneous failure — network errors, bad responses, unexpected data — must be caught first by the service. The service then decides: recover silently, return a safe empty value, or escalate. But escalation isn't only triggered by failures — business logic can also deliberately raise an exception or call `abort()` to communicate a meaningful condition: "not found", "access denied", "no results for this query". In both cases, raising or aborting is a communication channel, not just a crash signal — a structured way for the service to tell the route what happened without the route needing to inspect the data itself. The route (or Flask's `@app.errorhandler`) catches those signals and owns the user-facing resolution: rendering an error page, setting a status code, or flashing a message. This is propagation and coping — the service controls what gets signalled and why, the route controls how the client-server communication occurs and how the signal is presented to the user.
+
+Without this boundary, business logic accumulates directly in routes, making it untestable in isolation and harder to extend, modify, and test.
 ______________________________________________________________________
 
 ### 3. Converted `filter()` result to `list()`
