@@ -15,30 +15,48 @@
 # testable boundaries without over-engineering
 # into ports/adapters/hexagonal.
 #
-# TODO: Refactor for consistency — categories uses _load_categories() as a
-# service helper, but listings calls ReverbClient directly. Add _load_listings()
-# to establish a consistent service boundary (pagination, caching, etc. will
-# go there).
+# Refactored for consistency — categories uses _load_categories() as a
+# service helper, but listings was calling ReverbClient directly. I added
+# _load_listings() to establish a consistent service boundary
+# (pagination, caching, etc. will go there).
 
-from flask import Flask, request, render_template
+import os
+from dotenv import load_dotenv
+
+from flask import Flask, request, render_template, flash
 from reverb_client import ReverbClient
 
-app = Flask(__name__)
+load_dotenv()
+
+app = Flask(
+    __name__,
+)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 
 
 @app.route("/")
 @app.route("/categories")
 def categories():
-    categories = _search_categories(request.args.get("query"))
+    query = request.args.get("query")
+    categories = _search_categories(query)
+    if not request.args.get("query"):
+        flash(
+            "Search using a query string. While the query string "
+            "is empty, there will be no search results",
+            "warning",
+        )
+    elif not categories:
+        flash(
+            f"The are no category results for you query: {query}. "
+            f"Try something different",
+            "info",
+        )
     return render_template("categories.html", categories=categories)
 
 
 @app.route("/listings")
 def listings():
-    # TODO: Inconsistent — calls ReverbClient directly instead of going through
-    # a _load_listings() helper like categories does. Add _load_listings() for
-    # consistency and to support future pagination/filtering.
-    return render_template("listings.html", listings=ReverbClient().listings())
+    return render_template("listings.html", listings=_load_listings())
 
 
 def _search_categories(query):
@@ -46,7 +64,8 @@ def _search_categories(query):
         return []
 
     categories = _load_categories()
-    return filter(lambda c: query.lower() in c["full_name"].lower(), categories)
+    return list(filter(lambda c: query.lower() in c["full_name"].lower(), categories))
+    # return [c for c in categories if query.lower() in c["full_name"].lower()]
 
 
 # NOTE: Thin wrapper now, but this is the right place to add pagination,
@@ -55,6 +74,6 @@ def _load_categories():
     return ReverbClient().categories()
 
 
-# TODO: Add _load_listings() for consistency.
+# NOTE: _load_listings() for consistency. Also, for now, just a thin service layer
 def _load_listings():
     return ReverbClient().listings()
