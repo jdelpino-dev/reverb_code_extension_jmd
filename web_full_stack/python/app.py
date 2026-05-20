@@ -64,6 +64,9 @@ def _search_categories(query):
         return []
 
     categories = _load_categories()
+    # NOTE: we materialized the filter object into a list. Categories are stable
+    # and not too big of a collection. And, also we want to consume them and render them,
+    # because they are alreay been filtered.
     return list(filter(lambda c: query.lower() in c["full_name"].lower(), categories))
     # return [c for c in categories if query.lower() in c["full_name"].lower()]
 
