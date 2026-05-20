@@ -5,12 +5,16 @@
 This app uses a **layered architecture**:
 
 ```text
-HTTP Request → Route (HTTP layer) → Service (app logic) → Client (external IO) → Reverb API
+HTTP Request → Route (Controller) → Service → Client → Reverb API
+                      ↑                ↑        ↑          ↓
+                      ← ← ← ← ← ← ← ← ← ← ← ← JSON response
+                      ↓
+                    View (Jinja2) → HTML Response
 ```
 
 | Layer | File(s) | Responsibility |
 | --- | --- | --- |
-| Route | `app.py` (decorated functions) | Parse HTTP params, call service, render template |
+| Route (Controller) | `app.py` (decorated functions) | Parse HTTP params, call service, render template |
 | Service | `app.py` (`_load_*`, `_search_*` helpers) | App logic: filtering, coordination, future pagination/caching |
 | Client | `reverb_client.py` (`ReverbClient`) | Wraps Reverb API: headers, URLs, JSON parsing |
 | View | `templates/` (Jinja2) | HTML rendering only |
@@ -33,33 +37,17 @@ service helpers into a class and potentially introduce ports/adapters.
 
 ### Is this MVC?
 
-**Sort of — but it's missing the M.**
+**Partially — missing the M.** No Model layer (no data classes, no DB). Raw
+dicts flow from API to template. Routes act as Controller, Jinja2 templates are
+the View, and `_search_categories` absorbs Model-like business logic.
 
-| MVC Layer | Traditional role | This app | Present? |
-| --- | --- | --- | --- |
-| **Model** | Data representation, business logic, DB access | — | No. No DB, no data classes. Raw dicts flow from API to template. |
-| **View** | Renders output for the user | `templates/` (Jinja2) | Yes |
-| **Controller** | Receives request, coordinates, returns response | Route functions in `app.py` | Yes (but mixed with service logic) |
+More precisely: this is a **layered architecture** (Route/Controller → Service → Client),
+not MVC. The Rails version in this repo *is* MVC by convention.
 
-What you actually have is **VC + Client**:
-
-```text
-Controller (routes in app.py) → Client (ReverbClient) → External API
-     ↓
-View (Jinja2 templates)
-```
-
-There's no Model layer — no `Listing` class, no `Category` class, no data
-validation or domain logic attached to the data. Just raw dicts passed from the
-API response to the template. The "service helpers" (`_search_categories`)
-contain business logic that would normally live in a Model in proper MVC.
-
-Compare to the **Rails version** in this same repo — that one *is* MVC by
-convention (`app/models/`, `app/views/`, `app/controllers/`). Flask doesn't
-enforce this separation; you structure it yourself.
-
-If we added Pydantic models to represent `Listing` and `Category`, *then* you
-could call it MVC — with the model being a value object rather than an ORM entity.
+Note: MVC is a presentation pattern for one application boundary — it doesn't
+describe full-stack systems with network boundaries (SPA + API, microservices).
+See [MVC_AND_ARCHITECTURE_PATTERNS.md](MVC_AND_ARCHITECTURE_PATTERNS.md) for
+deeper analysis including the Next.js hybrid case.
 
 ---
 
@@ -95,9 +83,9 @@ could call it MVC — with the model being a value object rather than an ORM ent
 
 ## Key Insight: Inconsistency in Service Layer
 
-**Categories path:** Route → `_search_categories()` → `_load_categories()` → `ReverbClient()`
+**Categories path:** Route (Controller) → `_search_categories()` → `_load_categories()` → `ReverbClient()`
 
-**Listings path:** Route → `ReverbClient()` directly
+**Listings path:** Route (Controller) → `ReverbClient()` directly
 
 This is the main architectural issue. The `_load_categories()` helper is a thin
 wrapper now, but it represents the service boundary where pagination, caching,
@@ -110,10 +98,10 @@ boundary for both routes before adding features on top of it.
 
 ## File-by-File Breakdown
 
-### app.py — Routes + Service Layer
+### app.py — Routes (Controller) + Service Layer
 
-- `categories()`: Route handler. Reads query param, delegates to service helper.
-- `listings()`: Route handler. Calls client directly (inconsistent).
+- `categories()`: Controller/route. Reads query param, delegates to service helper.
+- `listings()`: Controller/route. Calls client directly (inconsistent).
 - `_search_categories(query)`: Service logic — filters categories by name match.
 - `_load_categories()`: Service boundary — wraps client call (thin now, will grow).
 
@@ -145,7 +133,7 @@ class ReverbClient:
 ### tests/ — Test Strategy
 
 **Mocking approach:** All tests patch `reverb_client.requests.get` at the HTTP
-level. This means the full path from route → service → client → (mocked) HTTP
+level. This means the full path from route (controller) → service → client → (mocked) HTTP
 is exercised in integration tests.
 
 | File | What it tests | Stub level |
@@ -173,7 +161,7 @@ is exercised in integration tests.
 | Caching | Not implemented | Service layer (e.g., `@lru_cache` on `_load_categories`) |
 | Listing detail page | Not implemented | New route + client method + template |
 | Auth | Not needed | Reverb public API is read-only without auth |
-| Input validation | Not implemented | Would go in routes (validate query params) |
+| Input validation | Not implemented | Would go in routes/controller (validate query params) |
 
 ---
 
