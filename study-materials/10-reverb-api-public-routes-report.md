@@ -89,8 +89,195 @@ Vary: Accept-Language, Accept-Version, X-Display-Currency, X-Shipping-Region, X-
 
 ### 2.6 Caching Behavior
 
-- **Categories endpoint:** `Cache-Control: max-age=86400, public` — cached for 24 hours (static data).
-- **Listings endpoint:** `Cache-Control: no-cache` — always fresh (dynamic data).
+Both endpoints were verified with `curl -sI` to extract response caching headers directly.
+
+#### Categories (`/api/categories/flat`)
+
+```bash
+curl -s -I \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| grep -iE "cache|etag|age|vary|cf-"
+
+# Result:
+cache-control: max-age=86400, public
+etag: W/"27bca2a233cebe6f57204ebb2785c5b0"
+age: 84245
+cf-cache-status: HIT
+vary: Accept-Language,Accept-Version,X-Display-Currency,X-Shipping-Region,X-Item-Region,X-Postal-Code
+vary: accept-encoding
+```
+
+- **`Cache-Control: max-age=86400, public`** — origin instructs CDN and any downstream caches to cache this response for 24 hours.
+- **`ETag: W/"..."`** — a weak entity tag. Clients can use this with `If-None-Match` for conditional GETs.
+- **`age: 84245`** — the response had already been in the Cloudflare edge cache for ~23.4 hours at time of request. The CDN is actively serving stale-within-TTL.
+- **`cf-cache-status: HIT`** — Cloudflare served this directly from its edge cache; the origin Rails server was not hit at all.
+
+#### Can you bypass the CDN cache for categories?
+
+No. Sending `Cache-Control: no-cache` as a **request** header has no effect — Cloudflare ignores client-side bypass hints for publicly cached resources:
+
+```bash
+curl -s -I \
+  -H "Cache-Control: no-cache" \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" \
+| grep -iE "cache|etag|age|cf-"
+
+# Result — CF still serves from cache despite the request header:
+cache-control: max-age=86400, public
+etag: W/"27bca2a233cebe6f57204ebb2785c5b0"
+age: 84271
+cf-cache-status: HIT    ← still a cache hit
+```
+
+This is by design. Cloudflare by default strips or ignores `Cache-Control: no-cache` and `Pragma: no-cache` from **incoming requests** to prevent cache poisoning and to protect the origin from cache-busting storms. The CDN TTL is controlled solely by the origin's response headers (`Cache-Control: max-age=86400`).
+
+#### The ETag / Conditional GET pattern (works correctly)
+
+What *does* work is `If-None-Match`, which lets clients avoid downloading the ~312 KB body when nothing has changed:
+
+```bash
+curl -s -I \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H 'If-None-Match: W/"27bca2a233cebe6f57204ebb2785c5b0"' \
+  "https://api.reverb.com/api/categories/flat" \
+| grep -iE "HTTP/|cache|etag|age|cf-"
+
+# Result:
+HTTP/2 304     ← Not Modified — no body transferred
+cache-control: max-age=86400, public
+etag: W/"27bca2a233cebe6f57204ebb2785c5b0"    ← same ETag, data unchanged
+cf-cache-status: HIT
+age: 84281
+```
+
+A well-behaved client should:
+
+1. Store the `ETag` from the first response.
+2. On subsequent polls, send `If-None-Match: <stored-etag>`.
+3. On `304`: use cached data. On `200`: update cache and ETag.
+
+This saves ~312 KB of transfer per poll when the taxonomy hasn't changed.
+
+#### Listings (`/api/listings/all`)
+
+```bash
+curl -s -I \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/listings/all?per_page=5&page=1" \
+| grep -iE "cache|etag|age|vary|cf-"
+
+# Result:
+cache-control: no-cache
+vary: Accept-Language,Accept-Version,X-Display-Currency,X-Shipping-Region,X-Item-Region,X-Postal-Code
+cf-cache-status: MISS
+```
+
+- **`Cache-Control: no-cache`** — origin tells Cloudflare and all downstream caches not to serve a stored response without revalidating with the origin. Every request hits the origin server.
+- **No `ETag`** — no conditional GET support. Cannot check for changes without fetching the full response.
+- **No `age` header** — nothing was served from cache; there is no age.
+- **`cf-cache-status: MISS`** — Cloudflare bypassed its edge cache and forwarded directly to the origin Rails app (note the higher `x-runtime: 0.601269` compared to categories' `x-runtime: 0.011453`).
+
+This means **no CDN bypass is needed or possible** for listings — the CDN already never caches it.
+
+### 2.7 ETags and Conditional GET — Per Endpoint
+
+An **ETag** (Entity Tag) is an HTTP response header that identifies a specific version of a resource. The server generates it (usually a hash of the response body) and the client stores it. On the next request the client sends it back via `If-None-Match`; the server compares it to the current version and responds either:
+
+- **`304 Not Modified`** — data unchanged, no body sent. Client reuses its cached copy.
+- **`200 OK`** with a new body and a new ETag — data changed, client updates its cache.
+
+This is the correct mechanism to avoid re-downloading a large static resource on every poll.
+
+#### Categories: ETag supported — use `If-None-Match`
+
+The categories endpoint returns a **weak ETag** (`W/"..."`) because the response body is deterministic and stable:
+
+```bash
+# Step 1 — first request: note the ETag in the response
+curl -s -I \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/flat" \
+| grep -i etag
+
+# Result:
+etag: W/"27bca2a233cebe6f57204ebb2785c5b0"
+```
+
+```bash
+# Step 2 — subsequent requests: send the stored ETag
+curl -s -I \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H 'If-None-Match: W/"27bca2a233cebe6f57204ebb2785c5b0"' \
+  "https://api.reverb.com/api/categories/flat" \
+| grep -iE "HTTP/|etag|cf-cache"
+
+# Result (taxonomy unchanged):
+HTTP/2 304             ← no body, ~312 KB saved
+etag: W/"27bca2a233cebe6f57204ebb2785c5b0"
+cf-cache-status: HIT
+
+# Result (taxonomy changed — new categories added/removed):
+HTTP/2 200             ← new body + new ETag
+etag: W/"<new_hash>"
+```
+
+**Practical pattern for a polling client:**
+
+```python
+# Pseudocode
+stored_etag = None
+
+def fetch_categories():
+    global stored_etag
+    headers = {"Accept": "application/hal+json", "Accept-Version": "3.0"}
+    if stored_etag:
+        headers["If-None-Match"] = stored_etag
+
+    response = requests.get("https://api.reverb.com/api/categories/flat", headers=headers)
+
+    if response.status_code == 304:
+        return CACHED  # nothing changed, reuse stored data
+
+    stored_etag = response.headers["ETag"]
+    return response.json()  # new data
+```
+
+Note that `cf-cache-status: HIT` on the `304` shows Cloudflare itself is handling the conditional validation at the edge — the origin Rails server is not involved at all.
+
+#### Listings: No ETag — conditional GET not supported
+
+The listings endpoint does **not** return an ETag:
+
+```bash
+curl -s -I \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/listings/all?per_page=5&page=1" \
+| grep -i etag
+
+# Result:
+(no output — no ETag header present)
+```
+
+This is intentional and consistent with `Cache-Control: no-cache` and `cf-cache-status: MISS`. The listings result set is inherently dynamic — new listings are published every second, prices change, items sell. There is no stable "version" to hash. Sending `If-None-Match` here would have no effect; the server would simply ignore the header and return a full `200` response every time.
+
+**Summary table:**
+
+```plaintext
+Endpoint               ETag    If-None-Match   304 possible   CDN cached
+/api/categories/flat   YES     YES             YES            YES (24h)
+/api/listings/all      NO      NO              NO             NO (MISS)
+```
 
 ---
 
@@ -129,7 +316,7 @@ curl -s ... "https://api.reverb.com/api/categories/flat" | jq 'keys'
 
 The response has a single top-level key `categories` containing an array.
 
-### 3.4 Total Categories
+### 3.4 Total Categories — No Pagination, Complete Dump
 
 ```bash
 # Command:
@@ -138,6 +325,31 @@ curl -s ... "https://api.reverb.com/api/categories/flat" | jq '.categories | len
 # Result:
 320
 ```
+
+The endpoint returns **all categories in a single response with no pagination**. This is confirmed by three checks:
+
+```bash
+# 1. No pagination keys in the response envelope
+curl -s ... "https://api.reverb.com/api/categories/flat" | jq 'keys'
+# → ["categories"]   ← no total, total_pages, current_page, per_page, or _links
+
+# 2. Pagination params are silently ignored — still returns all 320
+curl -s ... "https://api.reverb.com/api/categories/flat?per_page=5&page=1" \
+| jq '{keys: keys, count: (.categories | length)}'
+# → {"keys": ["categories"], "count": 320}
+
+# 3. page=2 returns the same 320 — there is no second page
+curl -s ... "https://api.reverb.com/api/categories/flat?page=2" \
+| jq '{keys: keys, count: (.categories | length)}'
+# → {"keys": ["categories"], "count": 320}
+
+# 4. All entries are unique — no duplication or truncation
+curl -s ... "https://api.reverb.com/api/categories/flat" \
+| jq '{total: (.categories | length), unique_uuids: ([.categories[] | .uuid] | unique | length), unique_full_names: ([.categories[] | .full_name] | unique | length)}'
+# → {"total": 320, "unique_uuids": 320, "unique_full_names": 320}
+```
+
+This is a **static reference endpoint** by design: the category taxonomy is small (~320 entries, ~312 KB), changes infrequently, and is needed in full by any client that wants to build a category picker or filter. Returning it as a single uncapped list is the correct trade-off. This also explains the `Cache-Control: max-age=86400, public` — it is safe to cache at the CDN edge for 24 hours because the data is stable.
 
 All 320 categories have `listable: true`:
 
@@ -284,6 +496,101 @@ dj-and-lighting-gear       7
 
 The `_embedded` HAL property is not used in this endpoint.
 
+### 3.12 Category Hierarchy: How Many Levels Deep?
+
+The `/api/categories/flat` name is slightly misleading — the data is returned as a **flat array**, but the categories themselves encode a **multi-level hierarchy** inside the `full_name` field using ` / ` as a path separator.
+
+There is **no explicit `parent_uuid` field**. The only relational anchors available per category are `root_uuid` and `root_slug`, which only point to the top-level ancestor — intermediate parent nodes must be inferred by parsing `full_name`.
+
+#### Depth Distribution
+
+```bash
+# Command — count unique depth levels by splitting full_name:
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| jq '[.categories[] | .full_name | split(" / ") | length] | unique | sort'
+
+# Result:
+[1, 2, 3, 4, 5]
+```
+
+There are **5 hierarchy levels**. The distribution by level:
+
+```bash
+# Command — count and sample examples per depth:
+... | jq '[.categories[] | {depth: (.full_name | split(" / ") | length), full_name}]
+  | group_by(.depth)
+  | map({depth: .[0].depth, count: length, examples: [.[].full_name] | .[0:3]})'
+
+# Result:
+Depth 1 →   14 categories  (root nodes, e.g. "Accessories", "Acoustic Guitars")
+Depth 2 →  148 categories  (e.g. "Acoustic Guitars / 12-String")
+Depth 3 →  151 categories  (e.g. "Amps / Guitar Amps / Acoustic Guitar Amps")
+Depth 4 →    6 categories  (all under "Keyboards and Synths")
+Depth 5 →    1 category    (deepest node in the entire tree)
+```
+
+The vast majority of categories sit at **depth 2–3**. Only 7 nodes (all in the `keyboards-and-synths` root) go deeper.
+
+#### The Deepest Node (Level 5)
+
+```bash
+# Command — all categories at depth >= 4:
+... | jq '[.categories[] | select((.full_name | split(" / ") | length) >= 4)
+  | {depth: (.full_name | split(" / ") | length), full_name, slug, root_slug}]
+  | sort_by(.depth)'
+
+# Result (depth 4):
+"Keyboards and Synths / Keyboard and Synth Accessories / Modular Synth Accessories / Blank Modular Synth Panels"
+"Keyboards and Synths / Keyboard and Synth Accessories / Modular Synth Accessories / Modular Synth DSP Cards"
+"Keyboards and Synths / Keyboard and Synth Accessories / Modular Synth Accessories / Modular Synth Power Supplies"
+"Keyboards and Synths / Synths / Modular Synths / Complete Modular Synth Systems"
+"Keyboards and Synths / Synths / Modular Synths / Modular Synth Cases"
+"Keyboards and Synths / Synths / Modular Synths / Synth Modules"
+
+# Result (depth 5 — the only one):
+"Keyboards and Synths / Keyboard and Synth Accessories / Modular Synth Accessories / Modular Synth Splitters / Hubs"
+```
+
+**The single deepest category** is `modular-synth-splitters-slash-hubs` — note the `slash` in the slug itself is URL-encoded because the `/` in "Splitters / Hubs" is a name separator within the node, not a hierarchy separator.
+
+#### Max Depth per Root Category
+
+```bash
+# Command:
+... | jq '[.categories[] | {depth: (.full_name | split(" / ") | length), root_slug}]
+  | group_by(.root_slug)
+  | map({root: .[0].root_slug, max_depth: (map(.depth) | max), avg_depth: (map(.depth) | add / length | floor)})
+  | sort_by(-.max_depth)'
+
+# Result:
+keyboards-and-synths    max=5  avg=2   ← only root reaching depth 5
+accessories             max=3  avg=2
+amps                    max=3  avg=2
+band-and-orchestra      max=3  avg=2
+drums-and-percussion    max=3  avg=2
+electric-guitars        max=3  avg=2
+home-audio              max=3  avg=2
+parts                   max=3  avg=2
+pro-audio               max=3  avg=2
+acoustic-guitars        max=2  avg=1
+bass-guitars            max=2  avg=1
+dj-and-lighting-gear    max=2  avg=1
+effects-and-pedals      max=2  avg=1
+folk-instruments        max=2  avg=1
+```
+
+#### Key Structural Observations
+
+1. **`/api/categories/flat` returns a denormalized tree** — every path from root to leaf is a separate record in the array. There are no nested arrays or parent pointers.
+2. **Hierarchy is implicit, encoded in `full_name`** — clients must parse ` / ` splits to reconstruct the tree. `root_uuid`/`root_slug` only anchor to depth-1, not intermediate nodes.
+3. **`slug` is always the leaf node name only** — e.g. `"acoustic-guitar-amps"` not `"guitar-amps/acoustic-guitar-amps"`. The full path is only in `full_name`.
+4. **Depth is uneven across roots** — simpler roots like `acoustic-guitars` max out at depth 2; the highly specialized `keyboards-and-synths` (Eurorack/modular ecosystem) reaches depth 5.
+5. **The deepest node's slug encodes its own internal `/`** — `"modular-synth-splitters-slash-hubs"` reveals that the node name itself contains " / " ("Splitters / Hubs"), which was serialized as `slash` to avoid ambiguity with the path separator used in `full_name`.
+
 ---
 
 ## 4. Endpoint: `/api/listings/all`
@@ -336,7 +643,34 @@ Response Size: ~22,398 bytes (~22 KB) for 5 listings
 }
 ```
 
-**Note:** Despite ~2.5M total listings, `total_pages` is capped at 50 (a common API pattern to prevent deep pagination abuse).
+**Note:** Despite ~2.5M total listings, `total_pages` is capped at 50. This is intentional product/API design — the endpoint is **search-window paginated, not cursor-export paginated**. The cap is per query result set, not a global limit. Reasons include:
+
+- **Deep offset pagination is expensive and unstable.** A request like `?page=30000&per_page=50` forces the search index to skip a huge ranked set. On a live marketplace where listings are constantly added, sold, bumped, and reordered, deep pages are not stable — page 30,000 at 10:00 AM may differ at 10:05 AM.
+- **This is a search/browse endpoint, not a bulk export endpoint.** Reverb's docs describe the API as tooling for shop integrations and automations, not full-marketplace harvesting.
+- **Anti-scraping protection.** The cap limits full-catalog extraction (price intelligence, seller cloning, AI training datasets, etc.).
+
+#### Reaching Listings Beyond the Cap: Query Partitioning
+
+The correct strategy is to narrow the search rather than paginate deeper. The cap applies per query, so filtered queries expose different windows:
+
+```bash
+GET /api/listings/all?category=...
+GET /api/listings/all?query=fender+stratocaster
+GET /api/listings/all?condition=...
+GET /api/listings/all?price_min=...&price_max=...
+GET /api/listings/all?make=...
+GET /api/listings/all?shipping_region=...
+```
+
+A robust algorithm:
+
+1. Pull `/api/categories/flat`.
+2. For each category, query listings. If `total_pages < 50`, paginate normally.
+3. If `total_pages == 50`, split further by price buckets, condition, make, or keyword.
+4. Deduplicate by listing `id` or `_links.self.href`.
+5. Stop splitting when each query returns below the cap.
+
+**Header note:** Omitting `X-Shipping-Region` returns the broadest result set. Including it filters to listings that ship to that region.
 
 ### 4.5 Collection-Level `_links` (Pagination)
 
@@ -722,6 +1056,55 @@ curl -s -I \
   -H "Accept-Version: 3.0" \
   -H "Content-Type: application/hal+json" \
   "https://api.reverb.com/api/categories/flat"
+
+# 13. Unique depth levels in the hierarchy (splits full_name on " / ")
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| jq '[.categories[] | .full_name | split(" / ") | length] | unique | sort'
+
+# 14. Count and examples for each depth level
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| jq '[.categories[] | {depth: (.full_name | split(" / ") | length), full_name}]
+  | group_by(.depth)
+  | map({depth: .[0].depth, count: length, examples: [.[].full_name] | .[0:3]})'
+
+# 15. All categories at depth 4 and 5 (deepest nodes)
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| jq '[.categories[] | select((.full_name | split(" / ") | length) >= 4)
+  | {depth: (.full_name | split(" / ") | length), full_name, slug, root_slug}]
+  | sort_by(.depth)'
+
+# 16. Max and average depth per root category
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| jq '[.categories[] | {depth: (.full_name | split(" / ") | length), root_slug}]
+  | group_by(.root_slug)
+  | map({root: .[0].root_slug, max_depth: (map(.depth) | max), avg_depth: (map(.depth) | add / length | floor)})
+  | sort_by(-.max_depth)'
+
+# 17. Full depth tree for keyboards-and-synths (the deepest root)
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/categories/flat" \
+| jq '[.categories[] | select(.root_slug == "keyboards-and-synths")
+  | {depth: (.full_name | split(" / ") | length), full_name}]
+  | sort_by(.depth)'
 ```
 
 ### 5.2 Listings Endpoint Commands
@@ -906,11 +1289,99 @@ curl -s -I \
 
 ## 6. Key Observations Summary
 
-1. **HAL compliance is partial** — Reverb uses `_links` extensively but does not use `_embedded`. Related resources are inlined as plain JSON properties instead.
-2. **Categories are flat, not hierarchical** — All 320 subcategories are returned in a single flat array. Parent-child relationships are expressed via `root_uuid` / `root_slug` rather than nesting.
-3. **Listings pagination is capped** — Despite ~2.5M total listings, `total_pages` is capped at 50 regardless of `per_page`. Deep pagination requires filters.
-4. **No authentication required** — Both endpoints work without auth tokens for read access.
-5. **Caching differs by endpoint** — Categories are edge-cached for 24 hours; listings are never cached (`no-cache`).
-6. **The `cart` link demonstrates HATEOAS** — The correct cart URL (`/api/cart/{listing_id}`) is discovered through `_links.cart.href` on each listing, not constructed manually. Attempting to GET this URL directly returns an error — it likely only accepts POST (to add items to cart) and requires authentication.
-7. **Photos are HAL sub-resources** — The `photos` array uses `_links` internally (with `large_crop`, `small_crop`, `full`, `thumbnail`), making photos the closest thing to `_embedded` resources in the response, even though they aren't wrapped in `_embedded`.
-8. **Price is triple-encoded** — Prices include `amount` (string), `amount_cents` (integer), and `display` (formatted string with symbol), giving consumers flexibility.
+1. **HAL compliance is pragmatic, not pure** — Reverb relies heavily on `_links` but does not use `_embedded`; related resources are inlined as ordinary JSON properties. However, `_links` usage is meaningful and intentional — they are operational affordances, not decoration.
+2. **Links are the canonical navigation mechanism** — Reverb explicitly warns developers not to construct URLs manually. Clients must follow `_links` to discover resource actions and transition endpoints. Links can represent verbs (`add_to_wishlist`) or nouns (`lists`), and endpoints may support only subsets of HTTP methods.
+3. **Categories are flat, not hierarchical** — All 320 subcategories are returned in a single flat array. Parent-child relationships are expressed via `root_uuid` / `root_slug` rather than nesting.
+4. **Listings pagination is search-window paginated, not cursor-export paginated** — Despite ~2.5M total listings, `total_pages` is capped at 50 per query. The cap protects search infrastructure, marketplace data, cache efficiency, and page stability on a live marketplace. To access listings outside the result window, partition queries using category, condition, price range, make/model, and shipping region filters, then deduplicate by listing ID.
+5. **No authentication required for public reads** — Both endpoints explored work without auth tokens. However, the boundary is not "public API vs. private API" — it is one unified API where anonymous calls can read some resources, while account-scoped and mutating calls require Bearer tokens.
+6. **Action links show domain capabilities, not anonymous permission** — Public listing responses include links like `cart`, `watchlist`, and `make_offer`. Their presence means the resource supports that action in the Reverb domain model. Executing the action still requires the correct HTTP method, authentication, scope, and account state.
+7. **Caching differs by endpoint** — Categories are edge-cached for 24 hours; listings are never cached (`no-cache`).
+8. **Photos are HAL sub-resources** — The `photos` array uses `_links` internally (with `large_crop`, `small_crop`, `full`, `thumbnail`), making photos the closest thing to `_embedded` resources in the response.
+9. **Price is consumer-friendly and machine-friendly** — Prices include `amount` (string), `amount_cents` (integer), `currency`, `symbol`, and `display` (formatted), giving consumers flexibility for both display and computation.
+10. **Headers materially affect response shape** — `Accept-Version` defaults to 1.0; 3.0 is the current recommended version. `Accept-Language`, `X-Display-Currency`, and `X-Shipping-Region` can alter localization, price display, and listing visibility. The same endpoint can return different data depending on these headers.
+11. **Additional public read endpoints exist** — Beyond the two explored here, the API also exposes `GET /api/listing_conditions`, `GET /api/currencies/display`, and `GET /api/currencies/listing` without authentication.
+12. **Some metadata endpoints are dual-mode** — Endpoints like `/api/listing_conditions` work anonymously (returning general metadata) but return account-specific availability when called with a shop token (e.g., B-Stock and Mint conditions are only available to enabled accounts).
+13. **Rate limits are behaviorally enforced** — Reverb returns 429 responses for excessive volume but does not publish precise quotas. Apps with higher requirements can request increases. A mature integration should include rate-limit backoff, pagination via `_links.next`, and throttled requests.
+
+---
+
+## 7. Authenticated API (Side Topic)
+
+This section is included for architectural context. The interview exercise focuses on public endpoints, but understanding the authenticated surface helps explain design decisions visible in public responses.
+
+### 7.1 One API, Two Access Levels
+
+There is no separate "authenticated API." The same HAL-style API surface serves both anonymous reads and account-scoped operations. The `/my/...` prefix is the strongest indicator of account-scoped endpoints:
+
+| Anonymous (public read) | Authenticated (account-scoped) |
+| --- | --- |
+| `GET /api/listings/all` | `GET /api/my/listings` |
+| `GET /api/categories/flat` | `GET /api/my/orders/selling/all` |
+| `GET /api/listing_conditions` | `GET /api/my/conversations` |
+| `GET /api/currencies/display` | `POST /api/listings` |
+| | `PUT /api/listings/:id` |
+| | `POST /api/my/orders/selling/:order_number/ship` |
+
+### 7.2 Authentication Model: Personal Access Tokens
+
+Reverb uses **non-expiring Personal Access Tokens** (not OAuth). Tokens are generated from the user profile under "API & Integrations" and assigned scopes. The integration model is:
+
+```plaintext
+seller creates token → pastes into integration → integration acts as that seller
+```
+
+This is oriented toward seller/e-commerce sync integrations (Shopify, BigCommerce, Magento) rather than general consumer-facing third-party apps.
+
+### 7.3 Scopes
+
+| Scope family | What it covers |
+| --- | --- |
+| `public` | Read publicly available data |
+| `read_listings` / `write_listings` | Seller inventory, listing state, price, bumps, sales |
+| `read_orders` / `write_orders` | Order sync and fulfillment updates |
+| `read_messages` / `write_messages` | Conversations with buyers/sellers |
+| `read_offers` / `write_offers` | Negotiations / offers |
+| `read_profile` / `write_profile` | Account and shop settings |
+| `read_payouts` | Financial payout reporting |
+| `read_lists` / `write_lists` | Wishlist/watchlist/feed behavior |
+
+### 7.4 Listing State Machine
+
+The authenticated API is not just CRUD — it includes marketplace-state transitions:
+
+```plaintext
+draft → published/live → ordered/sold/ended
+```
+
+- `POST /api/listings` creates a draft by default.
+- `PUT /api/listings/:id` with `"publish": "true"` publishes.
+- `/api/my/listings/:id/state/end` ends a listing.
+- Inventory-enabled listings can auto-end at 0 stock; one-of-a-kind used items are locked after sale.
+
+### 7.5 E-Commerce Sync Design
+
+The authenticated API is optimized for marketplace synchronization:
+
+```plaintext
+External SKU changes
+→ find listing via /api/my/listings?sku=...&state=all
+→ follow _links.self.href
+→ PUT listing update
+→ optionally publish/end listing
+→ periodically pull orders
+→ push shipment/tracking info back to Reverb
+```
+
+### 7.6 Auth Does Not Remove the Public Search Cap
+
+Authentication answers "who are you?" and "what can you mutate?" — it does not transform a public search endpoint into a bulk export endpoint. The 50-page cap on `/api/listings/all` likely remains even with a Bearer token. Auth expands account-scoped capabilities (`/api/my/listings` may paginate your own inventory differently) but should not be assumed to unlock unrestricted traversal of all public listings.
+
+### 7.7 Order Action Links (HATEOAS in Practice)
+
+Order responses expose action links that demonstrate HATEOAS beyond what public endpoints show:
+
+- `ship`, `mark_picked_up` — fulfillment transitions
+- `purchase_shipping_label`, `packing_slip` — logistics
+- `feedback_for_buyer`, `feedback_for_seller` — trust system
+- `conversation`, `start_conversation` — messaging
+- `payments` — financial details
