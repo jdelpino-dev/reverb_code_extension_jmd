@@ -57,12 +57,16 @@ ______________________________________________________________________
 ```plaintext
 main                                ← upstream untouched
 practice                            ← your base branch (specs + scenario docs live here)
+  practice/scenario-0-general-improvements
   practice/scenario-1-detail-page
   practice/scenario-2-search-listings
   practice/scenario-3-pagination
   practice/scenario-4-category-nav
   practice/scenario-5-error-handling
   practice/scenario-6-price-sort
+  practice/scenario-7-form-submission
+  practice/scenario-8-dashboard-composition
+  practice/scenario-9-api-client-improvements
 ```
 
 Each scenario sub-branch starts fresh from `practice` (clean codebase + docs).
