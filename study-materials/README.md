@@ -17,7 +17,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 
 | Priority | Chapters | Why |
 | --- | --- | --- |
-| **CRITICAL** | 01 (Architecture), 05 (Pair Coding), 06 (Communication) | Direct match to every phase of the interview |
+| **CRITICAL** | 01 (Architecture), 05 (Pair Coding), 06 (Communication), 13 (A&R Team Fit) | Direct match to every phase of the interview |
 | **HIGH** | 02 (Testing), 03 (Flask Patterns), 07 (Quick Reference) | Technical depth you'll demonstrate live |
 | **MEDIUM** | 04 (System Design), 08 (Debugging) | Discussion topics and "what if" questions |
 | **LOWER** | 09 (Security) | Good awareness signals but unlikely to be tested directly |
@@ -35,6 +35,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 | 7 | [07-quick-reference.md](07-quick-reference.md) | Cheat sheets, commands, common patterns, status codes |
 | 8 | [08-debugging-methodology.md](08-debugging-methodology.md) | Systematic debugging, common Python/Flask bugs, "when stuck" strategy |
 | 9 | [09-security-awareness.md](09-security-awareness.md) | Vulnerabilities in this codebase, OWASP patterns, what to mention |
+| 13 | [13-ar-team-fit.md](13-ar-team-fit.md) | A&R product framing, Ruby/Rails talking points, non-traditional background, React fluency |
 
 ## Pre-Interview Checklist
 
