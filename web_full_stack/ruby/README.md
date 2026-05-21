@@ -14,7 +14,7 @@ This is the Ruby/Rails part of the code extension. Tests are written using Rspec
 
 ## Running the server
 
-` rails s` will start a server on port 3000. You can then see the site at http://localhost:3000
+`rails s` will start a server on port 3000. You can then see the site at [http://localhost:3000](http://localhost:3000)
 
 ## Running the tests
 

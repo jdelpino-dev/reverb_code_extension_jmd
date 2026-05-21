@@ -1,8 +1,9 @@
-JavaScript Code Extension
+# JavaScript Code Extension
+
 ---
 The JS Code Extension is a React application created using [create-react-app](https://github.com/facebook/create-react-app). Tests are written using [enzyme](https://github.com/airbnb/enzyme) and [react-router](https://github.com/ReactTraining/react-router) manages routing.
 
-# Setup
+## Setup
 
 **During the interview, this application will run in a cloud-based IDE, so don't worry about running it locally. These setup instructions are purely for documentation purposes only.**
 
@@ -10,7 +11,7 @@ You'll need [yarn](https://yarnpkg.com/en/) installed and a recent version (>= 1
 
 * `yarn install` to install dependencies.
 
-# Running/Tests
+## Running/Tests
 
 * `yarn start` to start the development server. Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
 * `yarn test` to start the test suite.
