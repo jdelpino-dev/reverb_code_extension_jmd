@@ -4,15 +4,15 @@ ______________________________________________________________________
 
 ## Q1. "Walk me through what happens when a user visits /categories and submits a search."
 
-"When a user hits `/categories?query=guitar`, Flask matches it to the `categories` route function in `app.py`. That function reads `query` from `request.args`, then calls `_search_categories(query)`. That helper instantiates `ReverbClient`, calls `.categories()`  on it, which makes a GET to `https://api.reverb.com/api/categories/flat` with JSON headers. The response comes back as a list of category dicts. We filter them in Python using a lambda that checks if the query string appears in each category's `full_name` (case-insensitive). The filtered list gets passed to `render_template('categories.html', categories=...)`, which iterates over them in Jinja2 and renders each as a list item. If no matches, the template shows a 'no results' message."
+"When a user hits `/categories?query=guitar`, Flask matches it to the `categories` route function in `app.py`. That function reads `query` from `request.args`, then calls `_search_categories(query)`. That helper calls `_load_categories()`, which instantiates `ReverbClient` and calls `.categories()`. The client makes a GET to `https://api.reverb.com/api/categories/flat` with JSON headers. The response comes back as a list of category dicts. We filter them in Python using a lambda that checks if the query string appears in each category's `full_name` (case-insensitive). The filtered list gets passed to `render_template('categories.html', categories=...)`, which iterates over them in Jinja2 and renders each as a list item. If no matches, the template shows a 'no results' message."
 
-**Key points hit:** route → handler → client → HTTP call → filter logic → template render → conditional display.
+**Key points hit:** route -> service -> client -> HTTP call -> filter logic -> template render -> conditional display.
 
 ______________________________________________________________________
 
 ## Q2. "How is the ReverbClient class structured, and why would you design it this way?"
 
-"It's a thin wrapper around the Reverb public API. It knows the base URL, the required headers (Accept, Accept-Version, Content-Type), and exposes one method per resource — `categories()` and `listings()`. Internally it has a `_get` helper that builds the full URL, makes the HTTP request via the `requests` library, and parses JSON.
+"It's a thin wrapper around the Reverb public API. It knows the base URL, the required headers (Accept, Accept-Version, Content-Type), and exposes one method per resource -- `categories()` and `listings()`. Internally it has a `_get` helper that builds the full URL, makes the HTTP request via the `requests` library, and parses JSON.
 
 The design isolates all HTTP concerns in one place. If the API changes its headers or versioning, there's one file to update. For testing, I can mock `requests.get` in a single location and all route tests get predictable data without hitting the network."
 
@@ -28,9 +28,9 @@ ______________________________________________________________________
 
 ## Q4. "If you were onboarding a new developer to this codebase, what would you point out first?"
 
-"I'd start with `app.py` — it's the entire application in one file. Two routes: `/categories` and `/listings`. Both follow the same pattern: read params, call `ReverbClient`, render a template.
+"I'd start with `app.py` -- it's the entire application in one file. Two routes: `/categories` and `/listings`. Both follow the same pattern: read params, call `ReverbClient`, render a template.
 
-Then I'd show `reverb_client.py` — the only external dependency. Then the templates to see how data becomes HTML. Finally, I'd point them at the tests and show how to run them: `pipenv run pytest -vs`. The app is intentionally simple — no database, no auth, no ORM. All data comes from the Reverb public API."
+Then I'd show `reverb_client.py` -- the only external dependency. Then the templates to see how data becomes HTML. Finally, I'd point them at the tests and show how to run them: `pipenv run pytest -vs`. The app is intentionally simple -- no database, no auth, no ORM. All data comes from the Reverb public API."
 
 ______________________________________________________________________
 
@@ -64,9 +64,9 @@ ______________________________________________________________________
 
 "Mutable default arguments in Python are evaluated once at function definition time, not at each call. If you ever mutated that dict (like `params['new_key'] = value`), the mutation persists across calls. It's a classic Python gotcha.
 
-In this codebase, the `_get` method uses `params={}` but passes it directly to `requests.get` without mutating it, so it's not causing bugs right now. The safer pattern is `params=None` then `params = params or {}` inside the body.
+In this codebase, the `_get` method uses `params={}` but passes it directly to `requests.get` without mutating it, so it's not causing bugs right now. The safer pattern is `params=None` then `if params is None: params = {}` inside the body.
 
-Would I fix it during the interview? Only if asked, or if I'm adding code that would mutate the params. I'd mention I noticed it but wouldn't refactor unprompted — that's not what the interviewer is evaluating."
+Would I fix it during the interview? Yes -- it's a one-line change that eliminates a latent bug. I'd say: 'This is a classic Python gotcha -- let me fix it now since I'm about to add code that passes params through this method.'"
 
 ______________________________________________________________________
 
@@ -94,11 +94,9 @@ ______________________________________________________________________
 
 ## Q10. "Why are we mocking at the HTTP level in client tests but mocking the client class in route tests?"
 
-"Each test level should test one thing. Client tests verify that `ReverbClient` makes the right HTTP calls and parses responses correctly — so I mock the HTTP layer (`requests.get`) and let the client logic run.
+"Actually, both levels currently mock at the same point: `reverb_client.requests.get`. This means route tests are really integration tests -- they exercise the full path from route through service through client. That's fine for this scope since it catches real integration bugs like template/dict key mismatches.
 
-Route tests verify that the route handler passes data to templates correctly and renders proper HTML — so I mock the client class entirely and give it canned data. The route test doesn't care HOW the client gets data, just that the route uses it properly.
-
-This separation means if I change the API URL, only client tests break. If I change the template, only route tests break. They don't cascade."
+Ideally, client tests would mock `requests.get` while route tests mock the client class. That way API URL changes only break client tests, and template changes only break route tests. They don't cascade. With 5 tests and 2 routes, the current shared approach is pragmatic -- but it would need to change for error handling tests where you need different mock behaviors at different layers."
 
 ______________________________________________________________________
 

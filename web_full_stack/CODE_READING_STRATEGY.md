@@ -26,12 +26,12 @@ ReverbClient()
 
 Things to notice and articulate:
 
-1. **No auth** — only `Accept`, `Accept-Version`, `Content-Type` headers
-2. **Hardcoded base URI** — `https://api.reverb.com/api` (no env var override in production)
-3. **Constructor allows injection** — `base_uri` param enables testing against a different host
-4. **Mutable default argument** — `params={}` is a classic Python footgun (shared across calls)
-5. **No error handling** — `.json()` will throw on non-200 or malformed responses
-6. **No timeout** — `requests.get` will hang indefinitely on a stalled connection
+1. **No auth** -- only `Accept`, `Accept-Version`, `Content-Type` headers
+2. **Hardcoded base URI** -- `https://api.reverb.com/api` (no env var override in production)
+3. **Constructor allows injection** -- `base_uri` param enables testing against a different host
+4. **Mutable default argument** -- `params={}` is a classic Python footgun (shared across calls)
+5. **No error handling** -- `.json()` will throw on non-200 or malformed responses
+6. **No timeout** -- `requests.get` will hang indefinitely on a stalled connection
 
 ---
 
@@ -41,27 +41,27 @@ In `app.py`, trace the search flow:
 
 ```plaintext
 request.args.get('query')
-  → _search_categories(query)
-    → if not query: return []         # short-circuit: no query = no results
-    → _load_categories()              # fetches ALL categories from API
-    → filter(lambda c: query.lower() in c['full_name'].lower(), categories)
+  -> _search_categories(query)
+    -> if not query: return []         # short-circuit: no query = no results
+    -> _load_categories()              # fetches ALL categories from API
+    -> filter(lambda c: query.lower() in c['full_name'].lower(), categories)
 ```
 
 Things to articulate:
 
-1. **Client-side filtering** — always fetches the full category tree, then filters in Python
-2. **Case-insensitive substring match** — `in` operator on lowercased strings
-3. **No caching** — every search re-fetches the entire category list from Reverb
-4. **`filter()` returns an iterator** — works with Jinja2's `{% for %}`, but `len()` would fail on it
+1. **Client-side filtering** -- always fetches the full category tree, then filters in Python
+2. **Case-insensitive substring match** -- `in` operator on lowercased strings
+3. **No caching** -- every search re-fetches the entire category list from Reverb
+4. **`filter()` returns an iterator** -- works with Jinja2's `{% for %}`, but `len()` would fail on it
 
 ---
 
 ## Phase 4: Templates (30 seconds)
 
 ```plaintext
-base.html          → Bootstrap 4 layout, navbar with links to /categories and /listings
-categories.html    → Search form (GET /) + conditional list or "no results" message
-listings.html      → Iterates listings, renders thumbnail + title
+base.html          -> Bootstrap 4 layout, navbar with links to /categories and /listings
+categories.html    -> Search form (GET /) + conditional list or "no results" message
+listings.html      -> Iterates listings, renders thumbnail + title
 ```
 
 Key observation in `listings.html`:
@@ -113,17 +113,17 @@ tests/
 | -- | -- | -- |
 | No caching of categories | Every search = full round-trip to Reverb API | Add `functools.lru_cache` or Redis with TTL |
 | Client-side filtering | Fetches entire category tree every time | Use Reverb's query param if available, or cache locally |
-| No separation of concerns | `app.py` has route + business logic + data access | Extract a service layer for testability |
+| No separation of concerns for listings | `listings()` route calls client directly -- no service layer | Extract `_load_listings()` for consistency with categories |
 | Tight coupling to Reverb response shape | Template directly indexes `listing['photos'][0]['_links']['thumbnail']['href']` | Normalize in the client or a serializer |
 
 ### Resilience
 
 | Issue | Impact | What you'd improve |
 | -- | -- | -- |
-| No timeout on `requests.get` | App hangs if Reverb is slow | Add `timeout=5` |
-| No error handling | 500 from Reverb → unhandled exception → Flask 500 | Try/except with user-friendly error page |
+| No timeout on `requests.get` | App hangs if Reverb is slow | Add `timeout=(3, 5)` -- 3s connect, 5s read |
+| No error handling | 500 from Reverb -> unhandled exception -> Flask 500 | Try/except in service layer + user-friendly flash messages |
 | No retries | Transient failures surface immediately | `requests.adapters.HTTPAdapter` with `Retry` |
-| Mutable default `params={}` | Potential for params leaking between calls | Use `params=None`; `params = params or {}` |
+| Mutable default `params={}` | Potential for params leaking between calls | Use `params=None`; `if params is None: params = {}` |
 
 ### Testing
 
@@ -147,12 +147,12 @@ tests/
 
 ## Verbal Walkthrough Script (Practice Out Loud)
 
-> "The app has two pages — categories and listings — both served as server-rendered HTML via Flask and Jinja2.
+> "The app has two pages -- categories and listings -- both served as server-rendered HTML via Flask and Jinja2.
 >
-> For categories: when a user submits the search form, Flask reads the `query` param, calls the Reverb public API to fetch all categories, then filters them in Python using a case-insensitive substring match. The results render as a `<ul>` list.
+> For categories: when a user submits the search form, Flask reads the `query` param, calls `_search_categories()` which delegates to `_load_categories()`, which calls the Reverb public API to fetch all categories. The service filters them in Python using a case-insensitive substring match. The results render as a `<ul>` list.
 >
-> For listings: Flask calls Reverb's `/listings/all` endpoint with a hardcoded `per_page=10`, and the template renders each listing's title and first photo thumbnail.
+> For listings: Flask calls `ReverbClient().listings()` directly with a hardcoded `per_page=10`. There's no service helper for listings -- that's an inconsistency I'd fix.
 >
-> The API client is a thin wrapper around `requests` with no auth needed — just accept headers and API versioning. Tests mock `requests.get` at the module boundary so nothing hits the network.
+> The API client is a thin wrapper around `requests` with no auth needed -- just accept headers and API versioning. Tests mock `requests.get` at the module boundary so nothing hits the network.
 >
-> If I were to improve this, the biggest wins would be: adding a timeout and error handling to the HTTP client, caching the category list since it changes rarely, and fixing the mutable default argument in `_get()`."
+> If I were to improve this, the biggest wins would be: adding a timeout and error handling to the HTTP client, caching the category list since it changes rarely, fixing the mutable default argument in `_get()`, and adding `_load_listings()` for architectural consistency."

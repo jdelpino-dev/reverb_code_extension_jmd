@@ -53,15 +53,19 @@ Every test mocks at the same boundary: `requests.get`. This means:
 
 ```python
 # Categories: 3 layers, testable at each boundary
-Route → _search_categories() → _load_categories() → ReverbClient().categories()
+Route -> _search_categories() -> _load_categories() -> ReverbClient().categories()
 
-# Listings: 2 layers, no service boundary
-Route → ReverbClient().listings()
+# Listings: 1 layer -- no service boundary
+Route -> ReverbClient().listings()
 ```
 
 For categories, you *could* mock `_load_categories()` to test filter logic
-without hitting the client at all. For listings, there's no such seam — any test
+without hitting the client at all. For listings, there's no such seam -- any test
 must go through the full stack to the HTTP mock.
+
+This asymmetry means you can't test listing-related business logic (sorting,
+pagination, error handling) without also exercising the HTTP mock and template
+rendering.
 
 **Why this matters for each scenario:**
 
@@ -70,7 +74,7 @@ must go through the full stack to the HTTP mock.
 | 2 (Search) | Filter/query logic | Service layer | Without `_load_listings()`, filter logic lives in the route. You can't test it without rendering a template. |
 | 3 (Pagination) | Page param handling + metadata extraction | Service layer | Same: pagination logic tangled with route concerns. |
 | 5 (Error handling) | try/except + flash | Route + Service | Error paths need different mock responses per layer. With one mock point, you can't distinguish "client raised" from "service caught and handled." |
-| 6 (Sort) | Sorting logic | Service layer | Sort is pure business logic — it should be testable without HTTP or templates. But without a service function, it lives inline in the route. |
+| 6 (Sort) | Sorting logic | Service layer | Sort is pure business logic -- it should be testable without HTTP or templates. But without a service function, it lives inline in the route. |
 
 ### What Ideal Layer-Aware Testing Looks Like
 
@@ -125,7 +129,7 @@ For 5 tests and 2 routes, layer-aware testing is over-engineering. The current
 - Matches the codebase complexity (no DI, no interfaces, no abstractions).
 
 **The pivot point** is when you add Scenario 5 (error handling). At that point
-you need to test "client raises → service catches → route renders flash" — a
+you need to test "client raises -> service catches -> route renders flash" -- a
 multi-layer interaction that's nearly impossible to verify with a single
 `requests.get` mock unless you're very careful about what the mock returns.
 
@@ -133,11 +137,11 @@ multi-layer interaction that's nearly impossible to verify with a single
 
 - "The tests mock at the HTTP boundary, which makes them integration tests in
   disguise. That's fine for this scope."
-- "If I were adding error handling, I'd mock at the client boundary instead — so
+- "If I were adding error handling, I'd mock at the client boundary instead -- so
   I can verify the service catches the exception without caring about HTTP
   details."
 - "The missing `_load_listings()` is both an architecture issue and a testing
-  issue — it means I can't inject test data without going through the full HTTP
+  issue -- it means I can't inject test data without going through the full HTTP
   mock."
 - "I'd add the service helper first, which gives me a clean test seam, then
   implement the feature on top of it."

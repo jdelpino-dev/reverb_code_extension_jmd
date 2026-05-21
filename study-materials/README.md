@@ -45,3 +45,4 @@ The interview format is: **Read code → Explain architecture → Implement feat
 - [ ] Practiced the "3-minute orientation" narration out loud
 - [ ] Have 2-3 clarifying questions ready for any feature ask
 - [ ] Can articulate the service-layer inconsistency and why it matters
+- [ ] Can name the client issues: mutable default, no timeout, no error handling
