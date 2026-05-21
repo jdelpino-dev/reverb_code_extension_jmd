@@ -15,6 +15,8 @@ class ReverbClient:
         return self._get("/listings/all", {"per_page": per_page})["listings"]
 
     def categories(self):
+        # ERROR HANDLING: KeyError is possible here but it is propagated and catch on
+        # the service layer.
         return self._get("/categories/flat")["categories"]
 
     # Fixed a BUG prone pattern: mutable parameters: params={} _> params=None, and
@@ -22,6 +24,15 @@ class ReverbClient:
     def _get(self, path, params=None):
         if params is None:
             params = {}  # fresh allocated dict at call time.
-        return requests.get(
-            self._base_uri + path, headers=self.HEADERS, params=params
-        ).json()
+        response = requests.get(
+            self._base_uri + path,
+            headers=self.HEADERS,
+            params=params,
+            # NOTE: Enhancement: timeout: (connect_timeout, read_timeout)
+            timeout=(
+                3,
+                5,
+            ),
+        )
+        response.raise_for_status()  # raises HTTPError (subclass of RequestException) for 4xx/5xx
+        return response.json()  # only called on 2xx — less likely to return HTML
