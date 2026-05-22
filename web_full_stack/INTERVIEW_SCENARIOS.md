@@ -48,6 +48,16 @@ ______________________________________________________________________
 
 ### Scenario 6: Price Display + Sort
 
+### Scenario 7: Form Submission (POST Request)
+
+### Scenario 8: Dashboard Composition (Multiple API Calls)
+
+### Scenario 9: API Client Improvements
+
+### Scenario 10: Condition Dropdown Filter
+
+### Scenario 11: Recently Viewed Listings (Session State)
+
 Each scenario has its own detailed spec below. Practice each on a **separate git branch**.
 
 ______________________________________________________________________
@@ -67,6 +77,8 @@ practice                            ← your base branch (specs + scenario docs 
   practice/scenario-7-form-submission
   practice/scenario-8-dashboard-composition
   practice/scenario-9-api-client-improvements
+  practice/scenario-10-condition-filter
+  practice/scenario-11-recently-viewed
 ```
 
 Each scenario sub-branch starts fresh from `practice` (clean codebase + docs).
