@@ -11,9 +11,13 @@ role of a coworker — they want to see what it's like to build something *with*
 | --- | --- |
 | Technical competence | You write working code, debug effectively |
 | Collaboration quality | You communicate, adapt, incorporate feedback |
+| Judgment with AI tooling | You use AI as a tool, not a crutch — review critically, explain reasoning |
 
-Most candidates prepare only for the first. The second is where offers are won
-or lost at equal technical levels.
+Most candidates prepare only for the first. The second (and now third) is where
+offers are won or lost at equal technical levels.
+
+**Note:** AI tooling (GitHub Copilot) is explicitly allowed in this interview.
+See [14-ai-use-strategy.md](14-ai-use-strategy.md) for the full strategy.
 
 ---
 
@@ -25,6 +29,8 @@ or lost at equal technical levels.
 - Treat their suggestions as useful (not as tests)
 - Share your reasoning (not your polished answer)
 - Admit uncertainty early (not after wasting 5 minutes)
+- Use AI as a collaborator, not a replacement for your thinking
+- Always explain *why* you accept or reject an AI suggestion
 
 ---
 
@@ -222,6 +228,24 @@ Don't gold-plate. Instead:
 - Mention what you'd add next
 - Clean up any TODO comments
 
+### Using AI During the Session
+
+Copilot suggestions will appear naturally as you code. Handle them like this:
+
+- **Accept with narration:** "Copilot's suggesting the response parsing — that
+  looks right, it matches the pattern we used for categories."
+- **Reject with reason:** "That suggestion adds error handling I don't need yet —
+  let me stay focused on the happy path."
+- **Modify:** "The autocomplete is close but it's using the wrong key. Let me
+  adjust."
+
+Do NOT:
+
+- Silently accept every suggestion without reviewing
+- Ask AI to generate entire implementations while you stay silent
+- Pretend AI isn't there — acknowledge it naturally
+- Let AI drive the architecture decisions
+
 ---
 
 ## Pre-Interview Physical Checklist
@@ -232,3 +256,7 @@ Don't gold-plate. Instead:
 - [ ] Verified `pipenv run pytest -vs` works
 - [ ] Done a live `curl` against the Reverb API to see response shapes
 - [ ] Practiced the 3-minute narration out loud at least twice
+- [ ] GitHub Copilot configured and working in VS Code
+- [ ] Live Share extension installed and tested
+- [ ] Practiced accepting/rejecting Copilot suggestions while narrating
+- [ ] Prepared opening line about AI tooling (see chapter 14)

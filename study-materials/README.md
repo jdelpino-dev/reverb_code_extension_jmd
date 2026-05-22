@@ -17,7 +17,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 
 | Priority | Chapters | Why |
 | --- | --- | --- |
-| **CRITICAL** | 01 (Architecture), 05 (Pair Coding), 06 (Communication), 13 (A&R Team Fit) | Direct match to every phase of the interview |
+| **CRITICAL** | 01 (Architecture), 05 (Pair Coding), 06 (Communication), 13 (A&R Team Fit), 14 (AI Strategy) | Direct match to every phase of the interview |
 | **HIGH** | 02 (Testing), 03 (Flask Patterns), 07 (Quick Reference) | Technical depth you'll demonstrate live |
 | **MEDIUM** | 04 (System Design), 08 (Debugging) | Discussion topics and "what if" questions |
 | **LOWER** | 09 (Security) | Good awareness signals but unlikely to be tested directly |
@@ -36,6 +36,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 | 8 | [08-debugging-methodology.md](08-debugging-methodology.md) | Systematic debugging, common Python/Flask bugs, "when stuck" strategy |
 | 9 | [09-security-awareness.md](09-security-awareness.md) | Vulnerabilities in this codebase, OWASP patterns, what to mention |
 | 13 | [13-ar-team-fit.md](13-ar-team-fit.md) | A&R product framing, Ruby/Rails talking points, non-traditional background, React fluency |
+| 14 | [14-ai-use-strategy.md](14-ai-use-strategy.md) | AI tooling allowed, Copilot usage patterns, narration strategy, opening statement |
 
 ## Pre-Interview Checklist
 
@@ -47,3 +48,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 - [ ] Have 2-3 clarifying questions ready for any feature ask
 - [ ] Can articulate the service-layer inconsistency and why it matters
 - [ ] Can name the client issues: mutable default, no timeout, no error handling
+- [ ] GitHub Copilot configured and working in VS Code
+- [ ] Live Share extension installed and tested
+- [ ] Practiced narrating accept/reject of AI suggestions out loud
+- [ ] Memorized the AI opening statement (chapter 14)

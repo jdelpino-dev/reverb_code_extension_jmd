@@ -6,8 +6,10 @@ Technical interviews assess two things equally:
 
 1. **Can you solve the problem?** (technical skill)
 2. **Can I work with this person?** (communication, collaboration)
+3. **Can they use tools effectively?** (judgment, critical review of AI output)
 
 The way you communicate often matters more than arriving at the perfect solution.
+With AI allowed, *how you narrate your use of AI* becomes part of the signal.
 
 ---
 
@@ -48,6 +50,8 @@ The way you communicate often matters more than arriving at the perfect solution
 | Service layer inconsistency | "Categories has a service helper but listings calls the client directly — I'd fix that for consistency" |
 | No auth | "The public API doesn't require auth, which keeps this simple" |
 | Mutable default | "I noticed the mutable default arg — harmless now since it's never mutated, but I'd fix it if I were adding mutation logic" |
+| AI suggestion is wrong | "Copilot suggested X, but that won't work here because Y — let me write it this way instead" |
+| AI suggestion is helpful | "Nice — Copilot got the pattern right. That matches what we did above." |
 
 ---
 
@@ -126,6 +130,9 @@ The way you communicate often matters more than arriving at the perfect solution
 - **Don't say "I don't know" without follow-up** — say "I'm not sure, but I'd approach it by..."
 - **Don't apologize for style** — write your best code, move on
 - **Don't argue about tools** — "I'd use X, but if the team prefers Y, that works too"
+- **Don't silently accept AI suggestions** — always narrate what Copilot gave you and why you kept/rejected it
+- **Don't let AI go unchecked** — review every suggestion; catching an AI mistake shows strong judgment
+- **Don't hide AI use** — be transparent; they explicitly allowed it
 
 ---
 
