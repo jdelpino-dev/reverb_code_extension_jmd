@@ -300,3 +300,119 @@ ______________________________________________________________________
 - Why not just check `response.data` as a string?
 - Structural assertions vs. substring matching
 - Compare to Rails' `assert_select`
+
+______________________________________________________________________
+
+## Part 8: "Do You Actually Read Code?" Probes
+
+These are quick, pointed questions the interviewer might ask during the "explain the code" phase. They test whether you've truly read the code rather than skimmed it. Practice answering in 15-30 seconds each.
+
+______________________________________________________________________
+
+### Q28. "Why does the ReverbClient use `application/hal+json` as the Accept header?"
+
+**Hints:**
+
+- HAL = Hypertext Application Language — a JSON format that includes `_links`
+- Reverb's API returns hypermedia links (`_links.self`, `_links.next`) in this format
+- Without it, you'd get plain JSON without navigation metadata
+- Useful for pagination (`_links.next`) and resource self-references
+
+______________________________________________________________________
+
+### Q29. "What happens if `_get` returns a response that has no `listings` key?"
+
+**Hints:**
+
+- `self._get(...)["listings"]` would raise a `KeyError`
+- No defensive handling exists — the app would 500
+- Is that acceptable? (Depends on trust in the API contract)
+- What would you add? (`.get("listings", [])` or explicit error handling)
+
+______________________________________________________________________
+
+### Q30. "Why is `per_page` hardcoded to 10 in the client?"
+
+**Hints:**
+
+- Default argument — callers can override it
+- But the route doesn't expose it to the user (no `?per_page=` param)
+- Trade-off: simple UI vs. user control
+- If you were adding pagination, this would need to change
+
+______________________________________________________________________
+
+### Q31. "Why does `_get` call `.json()` directly without checking the status code?"
+
+**Hints:**
+
+- If the API returns 404 or 500, `.json()` might still parse (error body) or raise
+- `requests` doesn't raise on 4xx/5xx by default — you need `.raise_for_status()`
+- The current code silently treats error responses as data
+- Where would you add the check? (In `_get`, so all callers benefit)
+
+______________________________________________________________________
+
+### Q32. "What's the purpose of `Accept-Version: 3.0` in the headers?"
+
+**Hints:**
+
+- Pins the API to version 3 of Reverb's public API
+- Without it, you might get a different response shape if they release v4
+- Defensive coding — your parsing logic depends on a known schema
+- Similar to specifying API version in a URL path (`/v3/listings`)
+
+______________________________________________________________________
+
+### Q33. "The categories route has two decorators: `@app.route('/')` and `@app.route('/categories')`. Why?"
+
+**Hints:**
+
+- Same handler serves both URLs — the homepage IS the categories page
+- Flask allows multiple route decorators on one function
+- Alternative: redirect `/` to `/categories` (different trade-off — extra HTTP round-trip)
+- SEO consideration: which URL is canonical?
+
+______________________________________________________________________
+
+### Q34. "Why does `_search_categories` filter on the client side instead of passing a query param to the API?"
+
+**Hints:**
+
+- The Reverb categories endpoint (`/categories/flat`) doesn't support a `query` parameter
+- Client-side filtering is the only option without a server-side search endpoint
+- Trade-off: fine for ~50 categories, would break at 10,000 items
+- The listings endpoint DOES support query — different API, different strategy
+
+______________________________________________________________________
+
+### Q35. "What does `load_dotenv()` do and why is it called before `Flask(__name__)`?"
+
+**Hints:**
+
+- Loads `.env` file variables into `os.environ`
+- Must run before any `os.environ.get()` calls (like `FLASK_SECRET_KEY`)
+- In production, environment variables are set by the platform — `.env` is dev-only
+- If called after `app = Flask(...)`, the secret key lookup would fail
+
+______________________________________________________________________
+
+### Q36. "Why does the app set `app.secret_key`? What uses it?"
+
+**Hints:**
+
+- `flash()` messages require a session, sessions require a secret key
+- Without it, Flask raises a RuntimeError when you call `flash()`
+- The fallback `"dev-only-secret"` is insecure — fine for dev, not production
+- In production: generate a random key, store in environment variable
+
+______________________________________________________________________
+
+### Q37. "The `flash()` call uses category `'warning'` and `'info'`. Where do those end up?"
+
+**Hints:**
+
+- In the template via `get_flashed_messages(with_categories=true)`
+- The category string maps to a CSS class for styling
+- It's a convention, not enforced — you could use any string
+- Look at `base.html` to see how flash messages render
