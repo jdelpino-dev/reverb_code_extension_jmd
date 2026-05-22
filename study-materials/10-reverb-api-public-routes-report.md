@@ -25,6 +25,10 @@ Reverb's public endpoints form a cohesive, well-designed read surface oriented t
 - **16 endpoints work without auth:** Covering taxonomy, listings, conditions, currencies, geography, shipping, collections, pricing, editorial content, and search suggestions.
 - **Link-driven design is enforced:** Clients must not construct URLs — they follow `_links` to discover actions, navigate pages, and transition between resources. *(Caveat: this principle assumes first-party clients that always begin navigation from a root resource. Third-party consumers with independent entry points — bookmarks, deep links, shared URLs — cannot guarantee a prior response exists to extract links from. In that context, URL construction from a known base + ID is a justified, deliberate deviation. See [scenario-1-detail-page.md](../web_full_stack/scenario-1-detail-page.md) for a full trade-off analysis.)*
 
+### Documentation Status
+
+Reverb does maintain official API documentation at reverb-api.com, but the public read surface is not presented as a single "public endpoints" catalog. The docs are primarily organized around seller integrations, authentication, listing creation, listing updates, orders, and ecommerce sync workflows. This report complements the official docs by empirically cataloging anonymous-access GET endpoints and runtime behavior.
+
 ---
 
 ## 1. What is HAL+JSON?
@@ -684,6 +688,103 @@ folk-instruments        max=2  avg=1
 4. **Depth is uneven across roots** — simpler roots like `acoustic-guitars` max out at depth 2; the highly specialized `keyboards-and-synths` (Eurorack/modular ecosystem) reaches depth 5.
 5. **The deepest node's slug encodes its own internal `/`** — `"modular-synth-splitters-slash-hubs"` reveals that the node name itself contains " / " ("Splitters / Hubs"), which was serialized as `slash` to avoid ambiguity with the path separator used in `full_name`.
 
+### 3.13 The Hierarchical Endpoint: `/api/categories/`
+
+While `/api/categories/flat` returns a denormalized flat array, the **`/api/categories/`** endpoint returns the same taxonomy as a **structured tree** with explicit `subcategories` arrays nested inside each root category.
+
+#### 3.13.1 HTTP Request
+
+```bash
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/categories/"
+```
+
+#### 3.13.2 Category Object Schema
+
+```bash
+# Command:
+curl -s ... "https://api.reverb.com/api/categories/" | jq '.categories[0] | map_values(type)'
+
+# Result:
+{
+  "uuid": "string",
+  "full_name": "string",
+  "name": "string",
+  "root_uuid": "string",
+  "root_slug": "string",
+  "slug": "string",
+  "collection_title": "string",
+  "listable": "boolean",
+  "_links": "object",
+  "subcategories": "array"
+}
+```
+
+The schema is **identical to the flat endpoint** except for the addition of the `subcategories` field — an array of child category objects (which share the same schema minus further nested subcategories).
+
+#### 3.13.3 Example Root Category with Subcategories
+
+```bash
+# Command:
+curl -s ... "https://api.reverb.com/api/categories/" | jq '.categories[0]'
+```
+
+```json
+{
+  "uuid": "62835d2e-ac92-41fc-9b8d-4aba8c1c25d5",
+  "full_name": "Accessories",
+  "name": "Accessories",
+  "root_uuid": "62835d2e-ac92-41fc-9b8d-4aba8c1c25d5",
+  "root_slug": "accessories",
+  "slug": "accessories",
+  "collection_title": "Accessories",
+  "listable": true,
+  "_links": {
+    "image": { "href": "https://rvb-img.reverb.com/i/s--kdJqzJkK--/..." },
+    "self": { "href": "https://api.reverb.com/api/categories/62835d2e-..." },
+    "listings": { "href": "https://api.reverb.com/api/listings?category_uuid=62835d2e-..." },
+    "follow": { "href": "https://api.reverb.com/api/my/follows/categories/62835d2e-..." },
+    "collection_header_image": { "href": "https://rvb-img.reverb.com/i/s--cs1-adMw--/..." },
+    "web": { "href": "/au/marketplace?product_type=accessories" }
+  },
+  "subcategories": [
+    {
+      "uuid": "cdadd9b5-9d6d-4193-b0ee-b94d9ffd02ec",
+      "full_name": "Accessories / Amp Covers",
+      "name": "Amp Covers",
+      "root_uuid": "62835d2e-ac92-41fc-9b8d-4aba8c1c25d5",
+      "root_slug": "accessories",
+      "slug": "amp-covers",
+      "collection_title": "Amp Covers",
+      "listable": true,
+      "_links": { "..." }
+    },
+    { "...26 more subcategories..." }
+  ]
+}
+```
+
+#### 3.13.4 Key Structural Differences from `/api/categories/flat`
+
+| Aspect | `/api/categories/flat` | `/api/categories/` |
+|--------|------------------------|---------------------|
+| **Structure** | Flat array of all 320 categories | Array of 14 root categories, each with nested `subcategories` |
+| **Top-level array length** | 320 | 14 (root categories only) |
+| **Hierarchy representation** | Implicit via `full_name` path parsing | Explicit via `subcategories` array |
+| **Subcategories field** | Absent | Present (array of child objects) |
+| **Nesting depth** | N/A (flat) | One level deep (subcategories are not further nested) |
+| **Use case** | Building search filters, full taxonomy index | Rendering category navigation menus with parent/child grouping |
+
+#### 3.13.5 Observations
+
+1. **Subcategories are only one level deep** — the nested objects do not contain their own `subcategories` arrays. The hierarchy visible in `full_name` (up to depth 5) is flattened into a single subcategories list under each root.
+2. **Root categories point to themselves** — `root_uuid` equals `uuid` for root nodes (e.g., Accessories has `root_uuid == uuid`).
+3. **The `_links` structure is identical** — both root and subcategory objects expose the same 6 link relations (`image`, `self`, `listings`, `follow`, `collection_header_image`, `web`).
+4. **No pagination** — like the flat endpoint, this returns all data in a single response.
+5. **`web` link uses locale prefix** — the web href includes a locale segment (e.g., `/au/marketplace?...`) reflecting the geo-IP or Accept-Language of the request.
+
 ---
 
 ## 4. Endpoint: `/api/listings/all`
@@ -1132,7 +1233,7 @@ curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
   "https://api.reverb.com/api/listing_conditions" | jq '.conditions[] | {display_name, uuid}'
 ```
 
-**Response:** `{ "conditions": [...] }` — array of 8 condition objects.
+**Response:** `{ "conditions": [...] }` — anonymous access currently returns the 8 ordinary public conditions observed in testing. The official docs (reverb-api.com) list 10 condition entries in the full domain model: Non Functioning, Poor, Fair, Good, Very Good, Excellent, Mint, Mint with inventory, B-Stock, and Brand New. The additional account-gated conditions (B-Stock and Mint with inventory) are only usable if the seller account is explicitly enabled for them, and token-authenticated calls return the conditions available to that shop.
 
 | `display_name` | `uuid` |
 |---|---|
@@ -1457,6 +1558,24 @@ The `_links.self.href` always returns the canonical slug form.
 
 **Key takeaway for the detail page:** of the 21 extra fields, ~11 are worth rendering (payment methods, location, policies, videos, stats, handmade, sold-as-is, local-pickup-only). The remaining ~10 are internal/admin/auth-dependent state.
 
+**Officially documented listing-write fields that read back in detail responses:**
+
+The Reverb API docs (reverb-api.com) define these fields as part of the listing creation/update write model. They are confirmed readable in GET detail responses:
+
+| Write-model field | Read-back behavior |
+|---|---|
+| `categories` (up to 2 subcategories, or 1 root + 2 subcategories) | Appears as `categories` array with uuid/full\_name |
+| `make` / `model` (structured; strongly encouraged by Reverb) | Top-level string fields |
+| `year` (accepts exact years, ranges like "1960-1965", or decades like "1960s") | Top-level string field |
+| `offers_enabled` | Boolean, top-level |
+| `handmade` | Boolean, detail-only |
+| `inventory` / `has_inventory` | Object + boolean, both views |
+| `videos` | Array, detail-only |
+| `upc_does_not_apply` (UPC/EAN handling) | Boolean, detail-only |
+| `shipping_profile_id` (profiles must be created manually on Reverb, then referenced by ID) | Encoded in `shipping` object; not exposed as a standalone read field |
+
+Fields like `pre_order` and `scheduled_price_drops` are documented in the write model but were not observed in anonymous read responses during this exploration.
+
 ### 5.14 `/api/shops/{slug}`
 
 Returns public shop/seller profile information.
@@ -1477,7 +1596,7 @@ curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
 | `/api/listings/all` | Marketplace search/browse | Yes (capped at 50 pages) | Product listing |
 | `/api/listings/{id}` | Single listing detail | No | Detail page |
 | `/api/shops/{slug}` | Public seller profile | No | Seller pages |
-| `/api/listing_conditions` | 8 condition levels | No | Filter/form UI |
+| `/api/listing_conditions` | 8 public conditions (10 total with account-gated) | No | Filter/form UI |
 | `/api/currencies/display` | 16 display currencies | No | Currency selection |
 | `/api/currencies/listing` | 8 listing currencies | No | Seller forms |
 | `/api/countries` | 241 countries + subregions | No | Address forms |
@@ -1863,7 +1982,9 @@ There is no separate "authenticated API." The same HAL-style API surface serves 
 
 ### 8.2 Authentication Model: Personal Access Tokens
 
-Reverb uses **non-expiring Personal Access Tokens** (not OAuth). Tokens are generated from the user profile under "API & Integrations" and assigned scopes. The integration model is:
+For typical ecommerce/shop integrations, the documented model is scoped **Personal Access Tokens**. Reverb support material still refers to OAuth2-style Bearer authorization, so it is safest to describe the wire format as `Authorization: Bearer <token>` and the primary documented token type as non-expiring Personal Access Tokens.
+
+Tokens are generated from the user profile under "API & Integrations" and assigned scopes. They **do not expire**. The integration model is:
 
 ```plaintext
 seller creates token → pastes into integration → integration acts as that seller
@@ -1872,6 +1993,8 @@ seller creates token → pastes into integration → integration acts as that se
 This is oriented toward seller/e-commerce sync integrations (Shopify, BigCommerce, Magento) rather than general consumer-facing third-party apps.
 
 ### 8.3 Scopes
+
+The official scopes page confirms the following scope taxonomy:
 
 | Scope family | What it covers |
 | --- | --- |
@@ -1883,6 +2006,10 @@ This is oriented toward seller/e-commerce sync integrations (Shopify, BigCommerc
 | `read_profile` / `write_profile` | Account and shop settings |
 | `read_payouts` | Financial payout reporting |
 | `read_lists` / `write_lists` | Wishlist/watchlist/feed behavior |
+| `feedback` | Trust/review system |
+| `reviews` | Product reviews |
+
+Common ecommerce integration scopes recommended by the official docs: `public`, `read_listings`, `write_listings`, `read_orders`, `write_orders`.
 
 ### 8.4 Listing State Machine
 
