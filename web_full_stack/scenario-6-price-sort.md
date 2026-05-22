@@ -385,3 +385,23 @@ def test_active_sort_button_highlighted(priced_client):
 **Key insight:** "Ruby's `.to_f` silently returns 0 for non-numeric strings, which is forgiving but can mask bugs. Python's `float()` raises `ValueError`, which forces you to handle the edge case explicitly. In an interview, mention this difference — it shows you think about failure modes."
 
 **Python-specific discussion point:** "I used `list.sort()` (in-place) rather than `sorted()` (returns new list). For 10 items it doesn't matter, but it signals awareness of memory allocation. If I needed the original order preserved for something else, I'd use `sorted()`."
+
+______________________________________________________________________
+
+## Combination Variant: Category Landing Page (S4 + S6)
+
+The interviewer might combine this scenario with **Scenario 4** (category navigation)
+by asking:
+
+> "Build a category landing page that shows the category name, the first 5
+> listings with prices, and a 'See all' link."
+
+This reuses your price display template pattern from this scenario combined with
+the category-filtered API call from S4. No new patterns — just composition into
+a single route and template.
+
+**What to say:** "I already have the price display pattern and the category filter
+param. I'll combine them into a new route that shows a preview of the category."
+
+See [scenario-4-category-nav.md](scenario-4-category-nav.md) for the full combined
+implementation sketch.

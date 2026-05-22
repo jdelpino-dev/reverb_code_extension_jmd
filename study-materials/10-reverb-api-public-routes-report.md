@@ -23,7 +23,7 @@ Reverb's public endpoints form a cohesive, well-designed read surface oriented t
 - **The API is one unified surface:** There is no separate "public API" — the same endpoints serve anonymous reads and authenticated mutations, differentiated only by token presence and scopes.
 - **Headers shape the response:** Version, language, currency, and shipping region headers materially alter what data comes back from the same URL.
 - **16 endpoints work without auth:** Covering taxonomy, listings, conditions, currencies, geography, shipping, collections, pricing, editorial content, and search suggestions.
-- **Link-driven design is enforced:** Clients must not construct URLs — they follow `_links` to discover actions, navigate pages, and transition between resources.
+- **Link-driven design is enforced:** Clients must not construct URLs — they follow `_links` to discover actions, navigate pages, and transition between resources. *(Caveat: this principle assumes first-party clients that always begin navigation from a root resource. Third-party consumers with independent entry points — bookmarks, deep links, shared URLs — cannot guarantee a prior response exists to extract links from. In that context, URL construction from a known base + ID is a justified, deliberate deviation. See [scenario-1-detail-page.md](../web_full_stack/scenario-1-detail-page.md) for a full trade-off analysis.)*
 
 ---
 
@@ -1046,6 +1046,76 @@ Link descriptions:
 ```
 
 Not used in this endpoint either.
+
+### 4.18 Keyword Search via `query` Parameter
+
+The `query` parameter filters listings by keyword — model names, brands, or any search term. This was verified with `query=trbx` (a Yamaha bass guitar model line).
+
+#### Response Envelope Keys and Types
+
+```bash
+# Command:
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/listings/all?query=trbx" \
+| jq '. | keys'
+
+# Result:
+[
+  "_links",
+  "current_page",
+  "humanized_params",
+  "listings",
+  "per_page",
+  "ships_to",
+  "total",
+  "total_pages"
+]
+```
+
+The envelope schema is **identical** to the unfiltered `/api/listings/all` response — 8 top-level keys.
+
+```bash
+# Command:
+... | jq '. | map_values(type)'
+
+# Result:
+{
+  "total": "number",
+  "current_page": "number",
+  "per_page": "number",
+  "total_pages": "number",
+  "_links": "object",
+  "humanized_params": "string",
+  "listings": "array",
+  "ships_to": "string"
+}
+```
+
+#### Pagination Metadata for a Filtered Query
+
+```bash
+# Default per_page when not specified:
+... | jq '.per_page'
+# Result: 24
+
+# Total pages for query=trbx:
+... | jq '.total_pages'
+# Result: 29
+
+# Total matching listings:
+... | jq '.total'
+# Result: 684
+```
+
+**Key observations:**
+
+- **Default `per_page` is 24**, not the 5 used in earlier explorations. The API chooses 24 as its default page size when the `per_page` parameter is omitted.
+- **`total_pages` is 29** — well below the 50-page cap. This filtered result set is small enough that the full result window is reachable without query partitioning.
+- **`total` is 684** — confirms `684 / 24 = 28.5`, which rounds up to 29 pages. The math is consistent.
+- **Same envelope structure** — a `query` filter does not change the response shape at all, only the data within it.
 
 ---
 

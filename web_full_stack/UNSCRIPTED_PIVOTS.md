@@ -229,6 +229,26 @@ to see breadth over depth.
 - "Let's leave this and try something simpler"
 - "I want to see how you'd approach search instead"
 - "Can you add sorting to what we already have?"
+- "Can you build a category landing page that shows the name, a few listings with prices, and a link to see all?"
+
+**Combination variant — Category Landing Page:**
+
+This is the most likely "combine what you already have" pivot. If you've done
+S4 (category nav) or S6 (price display), the interviewer might say:
+
+> "Instead of just linking to all listings, can you make a category page that
+> shows the category name as a header, the first 5 listings with prices, and a
+> 'See all listings in this category' link?"
+
+This is not a new pattern — it's S4 + S6 + a template composition:
+
+1. Route: `/categories/<slug>` — receives the category slug from the URL
+2. Client: reuse `listings(category=slug, per_page=5)` (S4 code)
+3. Template: category name as `<h1>`, iterate listings showing `price.display` (S6 code), add `<a href="{{ url_for('listings', category=slug) }}">See all</a>`
+4. Edge: handle empty listings gracefully (S5 pattern)
+
+Say: "This combines two things I've already built — category filtering and price
+display. Let me wire them together in a new route and template."
 
 **How to pivot:**
 

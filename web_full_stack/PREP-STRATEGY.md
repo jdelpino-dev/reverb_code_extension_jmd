@@ -80,6 +80,15 @@ Goal: connect existing features and work with nested data.
 Checkpoint: you can explain why a param belongs in the URL and sort
 numerically not lexicographically.
 
+**Verbal prep — Combined Category Landing Page:** If the interviewer asks
+"show the category name, first 5 listings with prices, and a 'See all' link
+on one page" — recognize this as S4 + S6 assembled into a new view. No new
+patterns, just composition: fetch category by slug for the header, fetch
+listings filtered by that category (reuse S4 client code), display prices
+(reuse S6 template code), add a link to the full listings page. Mention
+you'd handle partial failure (S5 pattern) if the listings call fails but
+the category name is already in the URL.
+
 ## Day 5 -- Timed mock interview
 
 Goal: simulate the real thing under pressure.

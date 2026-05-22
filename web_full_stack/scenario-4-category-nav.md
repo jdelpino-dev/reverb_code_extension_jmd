@@ -424,3 +424,45 @@ def test_listings_without_category_omits_param():
 | Param forwarding | Implicit via `params` hash | Explicit via `request.args.get` + template var |
 
 **Key insight:** "This scenario connects two existing features. The implementation is small — mostly template changes and one new client param. In Rails you'd use `link_to` helpers; in Flask it's explicit HTML with `url_for`. Both generate the same result but Flask makes the HTML structure more visible."
+
+______________________________________________________________________
+
+## Combination Variant: Category Landing Page (S4 + S6)
+
+The interviewer might extend this scenario by asking:
+
+> "Instead of linking directly to the full listings page, build a category
+> landing page that shows the category name, the first 5 listings with prices,
+> and a 'See all' link."
+
+This combines **this scenario** (category → listings navigation) with **Scenario 6**
+(price display). No new mechanical skill is needed — it's template composition:
+
+```python
+@app.route("/categories/<slug>")
+def category_landing(slug):
+    listings = _load_listings(category=slug, per_page=5)
+    category_name = slug.replace("-", " ").title()
+    return render_template(
+        "category_landing.html",
+        category_name=category_name,
+        listings=listings,
+        slug=slug,
+    )
+```
+
+```html
+<h1>{{ category_name }}</h1>
+{% for listing in listings %}
+  <div class="listing-card">
+    <h3>{{ listing.title }}</h3>
+    <p>{{ listing.price.display }}</p>
+  </div>
+{% endfor %}
+<a href="{{ url_for('listings', category=slug) }}">See all listings in {{ category_name }}</a>
+```
+
+**What to say:** "This is just S4 and S6 assembled — I already have the client
+method and the price template pattern. I'll wire them into a new route."
+
+See also: [scenario-6-price-sort.md](scenario-6-price-sort.md) for the price display details.
