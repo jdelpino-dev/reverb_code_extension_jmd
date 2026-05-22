@@ -28,15 +28,33 @@ Reverb's public API exposes: `GET /api/listings/{id}` → returns a single listi
 
 **Photos:** The detail endpoint returns **all photos** (e.g., 3+) vs. only 1 in the collection view. Plan to iterate/display multiple images.
 
-### URL Construction vs. Link-Following
+### URL Construction vs. Link-Following (HATEOAS trade-off)
 
-Each listing in the collection view includes `_links.self.href` (e.g., `https://api.reverb.com/api/listings/97305295-fender-telecaster-...`).
+**Context:** this is about how your *server* calls the Reverb API — not browser navigation. The user always lands on your own Flask-rendered detail page.
 
-**When link-following helps here:** If the user navigates from the listings page (where you already have the listing object in memory), you can pass `_links.self.href` to the detail page and use it directly — no URL construction needed.
+The collection response includes `_links.self.href` for each listing (e.g., `https://api.reverb.com/api/listings/97305295-fender-telecaster-...`). In theory, your client could follow that URL directly instead of constructing `/listings/{id}` manually.
 
-**When URL construction is necessary:** When a user bookmarks or directly visits `/listings/123`, your route receives only the ID — you *must* construct the API URL. There's no `_links` to follow because you don't have a listing object yet.
+**Recommendation: construct URLs manually.** Here's why:
 
-**Interview framing:** "I construct the URL from the ID because the route only has an ID. If I were navigating from the collection view, I could pass the `_links.self.href` through — but for direct-access routes, URL construction is unavoidable."
+1. **You need construction anyway** — direct-access routes (bookmarks, shared links) only have the ID. You'd need two code paths if you also supported link-following.
+2. **Security (SSRF risk)** — blindly following URLs from an external API response means your server will request whatever URL that response contains. An attacker who compromises the upstream API (or injects into the response) could redirect your server to internal services. Constructing from a known base URL + ID eliminates this.
+3. **Single code path** — one `_get(f'/listings/{id}')` method works for every access pattern. No conditional logic, no "did we come from the collection view?" checks.
+4. **Stable API** — Reverb's URL structure is versioned. It won't change without a major version bump. The HATEOAS benefit of "the server can change URLs and clients adapt" doesn't apply to a third-party API you don't control the versioning of.
+
+**When link-following *would* make sense:** if you controlled both the API and the client (internal microservices), or if the API used opaque URLs that couldn't be constructed from known patterns.
+
+**Interview framing:** "The collection response gives me `_links.self.href` which I *could* follow, but I construct the URL manually because: I need it for direct-access routes anyway, I avoid SSRF by not following external URLs blindly, and one code path is simpler than two. If this were an internal API I controlled, I might follow links to decouple from URL structure — but for a third-party API with stable versioning, explicit construction is safer and simpler."
+
+**"But we use image URLs from the API in `<img>` tags — isn't that the same risk?"** No. The critical distinction is **who fetches the URL**:
+
+| URL usage | Who fetches | SSRF risk? | Why |
+| -- | -- | -- | -- |
+| `_links.self.href` → server calls Reverb API | Your server | **Yes** | Server has access to internal network (cloud metadata, internal services) |
+| `_links.large_crop.href` → rendered in `<img src>` | User's browser | **No** | Browser is sandboxed on the user's machine, cannot reach your internal infrastructure |
+
+SSRF is specifically about tricking your *server* into making requests to unintended destinations. Image URLs in HTML are fetched by the browser — which can't reach `http://169.254.169.254/metadata` on your cloud provider. Rendering external image URLs from a trusted API in `<img>` tags is standard practice.
+
+**Optional UX enhancement:** include a "View on Reverb" external link inside your detail page using `_links.web.href` — but that's a secondary user action, not an API call pattern.
 
 ### 2b. Extend the API Client
 

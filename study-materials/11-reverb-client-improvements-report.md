@@ -1161,6 +1161,91 @@ If asked "What would you improve next?" — order by impact:
 
 ______________________________________________________________________
 
+## Design Decision: URL Construction vs. HATEOAS Link-Following
+
+### What is HATEOAS?
+
+**HATEOAS** (Hypermedia As The Engine Of Application State) is a REST constraint where API responses include links to related resources. Instead of the client knowing URL patterns in advance, it discovers them from the response.
+
+Example — Reverb's collection response:
+
+```json
+{
+  "listings": [
+    {
+      "id": 97305295,
+      "title": "Fender Telecaster",
+      "_links": {
+        "self": { "href": "https://api.reverb.com/api/listings/97305295-fender-telecaster" },
+        "web": { "href": "https://reverb.com/item/97305295-fender-telecaster" },
+        "photo": { "href": "https://images.reverb.com/..." }
+      }
+    }
+  ]
+}
+```
+
+A pure HATEOAS client would follow `_links.self.href` to fetch the listing detail, rather than constructing `f"/listings/{id}"`.
+
+### Why we construct URLs manually (and don't follow `_links`)
+
+| Reason | Explanation |
+| -- | -- |
+| **Direct access requires it** | Bookmarked/shared URLs only provide an ID — no `_links` object exists. You need URL construction anyway. |
+| **Single code path** | One `_get(f'/listings/{id}')` works for every access pattern. No "did we come from a collection view?" branching. |
+| **SSRF prevention** | Following URLs from external responses means your server requests whatever URL the response contains. A compromised upstream (or injected response) could point your server at internal services. Constructing from a known base URL + validated ID eliminates this. |
+| **Stable API** | Reverb's URL structure is versioned (`Accept-Version: 3.0`). URL patterns won't change without a major version bump. The HATEOAS flexibility benefit doesn't materialize for a stable third-party API. |
+| **Simpler client** | The client only needs to know `base_uri + path`. No link-extraction logic, no response-parsing before the actual request. |
+
+### When HATEOAS link-following *would* make sense
+
+- **Internal microservices** — you control both sides and want to change URL structure without updating all clients.
+- **Opaque identifiers** — the API uses non-constructible URLs (e.g., signed URLs, UUIDs without a pattern).
+- **Pagination** — following `_links.next.href` for cursor-based pagination is a legitimate use of link-following (you can't construct cursor URLs).
+
+### The SSRF angle in detail
+
+```python
+# DANGEROUS: following a URL from an untrusted response
+def listing_by_link(self, link_href):
+    return self._session.get(link_href).json()  # What if link_href is http://169.254.169.254/metadata?
+```
+
+```python
+# SAFE: constructing from known base + validated ID
+def listing(self, listing_id):
+    return self._get(f'/listings/{listing_id}')  # Always hits self._base_uri + known path
+```
+
+Even if the Reverb API is trusted today, defense-in-depth means not designing a client that could be exploited if the upstream is compromised.
+
+### "But we render image URLs from the API — isn't that the same risk?"
+
+No. The key is **who fetches the URL**:
+
+| URL usage | Who fetches | SSRF risk? | Why |
+| -- | -- | -- | -- |
+| `_links.self.href` → your server calls Reverb API | **Your server** | Yes | Server sits inside your network — can reach cloud metadata, internal services, databases |
+| `_links.large_crop.href` → rendered in `<img src="...">` | **User's browser** | No | Browser runs on user's machine, sandboxed, cannot reach your internal infrastructure |
+
+SSRF (Server-Side Request Forgery) requires your *server* to be the one making the request. When the browser fetches an image URL, the request originates from the user's device — it has no access to `http://169.254.169.254/metadata`, your VPC, or internal services.
+
+**Remaining (low-severity) risks of rendering external image URLs:**
+
+- Tracking pixels — a malicious URL could log which users view which listings
+- Mixed content — `http://` images on an `https://` page get blocked by browsers
+- Availability — if the CDN restructures URLs, images break
+
+**Not a risk:** `<img src="javascript:...">` does not execute — browsers do not run JS from img src attributes.
+
+**Bottom line:** rendering image URLs from a trusted API in `<img>` tags is standard, safe practice. The SSRF concern applies exclusively to URLs your *server* would fetch via `requests.get()` or equivalent.
+
+### Interview angle
+
+> "The collection response provides `_links.self.href` per listing — that's HATEOAS. I could follow those links, but I construct URLs manually because: (1) I need construction for direct-access routes anyway, (2) one code path is simpler than two, and (3) following external URLs introduces SSRF risk. HATEOAS shines for internal APIs where you control URL evolution — for a stable third-party API, explicit construction is safer and simpler."
+
+______________________________________________________________________
+
 ## How to Talk About This in an Interview
 
 ### "What would you do with 30 more minutes?"
