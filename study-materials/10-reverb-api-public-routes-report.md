@@ -1164,6 +1164,51 @@ curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
 
 Example collection: "Best of Used: Deals & Steals" — `_links.listings.href` points to `GET /api/listings?curated_set_id=8`.
 
+### 5.8.1 `/api/listings?curated_set_id={id}` (Collection Listings)
+
+Each curated collection links to its listings via a `curated_set_id` query parameter on the `/api/listings` endpoint (note: `/api/listings`, not `/api/listings/all`).
+
+```bash
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/listings?curated_set_id=8" | jq '. | map_values(type)'
+```
+
+**Response envelope:**
+
+```json
+{
+  "total": "number",
+  "current_page": "number",
+  "per_page": "number",
+  "total_pages": "number",
+  "_links": "object",
+  "humanized_params": "string",
+  "listings": "array",
+  "ships_to": "string"
+}
+```
+
+**Observed values:**
+
+- `listings | length` → 24 (per page, default)
+- `total_pages` → 50 (same cap as `/api/listings/all`)
+
+**Key observations:**
+
+- **Same response structure** as `/api/listings/all` — same envelope keys, same listing object schema (26 fields per listing), same pagination cap of 50 pages.
+- **Different base path:** `/api/listings` vs. `/api/listings/all`. Both return the same structure. The `/api/listings` path is what the collections endpoint links to; `/api/listings/all` is the general browse endpoint. They appear to be functionally identical — just different entry points.
+- **Paginated:** supports `page` and `per_page` parameters like `/api/listings/all`.
+- **Use case:** rendering a "curated collection" page — display hand-picked listings from a Reverb editorial collection within your own app.
+
+```bash
+# Paginate through a curated collection:
+GET /api/listings?curated_set_id=8&page=1&per_page=10
+GET /api/listings?curated_set_id=8&page=2&per_page=10
+```
+
 ### 5.9 `/api/priceguide`
 
 Returns paginated price guide entries (~116K total products). Price guides provide historical market pricing data for specific make/model/year combinations.
