@@ -1236,6 +1236,73 @@ curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
 
 Also available: `GET /api/articles/featured` — returns featured/promoted articles.
 
+#### 5.10.1 `GET /api/articles/{slug}` (Works)
+
+Returns a single article by slug. Includes full body HTML, metadata, and HAL links.
+
+```bash
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/articles/6-standout-finds-on-reverb-this-week" | jq 'keys'
+# ["_links", "author_email", "author_name", "author_photo", "body",
+#  "horizontal_photo", "published_at", "slug", "square_photo", "summary",
+#  "tags", "title", "updated_at"]
+```
+
+**Object schema:**
+
+```json
+{
+  "slug": "6-standout-finds-on-reverb-this-week",
+  "title": "6 Standout Finds on Reverb This Week",
+  "author_name": "Reverb",
+  "author_email": "",
+  "author_photo": "",
+  "summary": "From vintage guitars to rare recording gear...",
+  "body": "<p>... full HTML content ...</p>",
+  "square_photo": "https://rvb-img.reverb.com/...",
+  "horizontal_photo": "https://rvb-img.reverb.com/...",
+  "published_at": "2026-05-15T03:00:00-04:00",
+  "updated_at": "2026-05-14T12:47:25-04:00",
+  "tags": "",
+  "_links": {
+    "self": { "href": "https://api.reverb.com/api/articles/{slug}" },
+    "related_listings": { "href": "https://api.reverb.com/api/articles/{slug}/related-listings" },
+    "web": { "href": "https://reverb.com/news/{slug}" }
+  }
+}
+```
+
+**Key observations:**
+
+- `body` contains raw editorial HTML (embedded listing cards, images, links to marketplace search)
+- `_links.web` gives the public-facing URL on reverb.com
+- `_links.related_listings` is advertised but **does not work** (see below)
+- `tags` is an empty string (not an array) — unclear if this is always the case or article-specific
+
+#### 5.10.2 `GET /api/articles/{slug}/related-listings` (404 — Broken)
+
+The `_links.related_listings` href advertised in article responses **returns a 404**:
+
+```bash
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/articles/6-standout-finds-on-reverb-this-week/related-listings"
+# HTTP 404
+```
+
+**This is a HATEOAS contract violation** — the API advertises a link relation that does not resolve. Possible explanations:
+
+1. The endpoint requires authentication (unlikely — articles are public)
+2. The endpoint was deprecated/removed but `_links` was not updated
+3. Related listings are embedded in the `body` HTML as inline cards rather than served as structured data
+
+For this codebase exercise, if asked to implement related listings for an article, you would need to either parse the `body` HTML or construct a listings search query from article metadata — the dedicated sub-resource endpoint is non-functional.
+
 ### 5.11 `/api/autocomplete?query=...`
 
 Returns make and model suggestions for search form autocomplete.
