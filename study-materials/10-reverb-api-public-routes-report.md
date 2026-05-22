@@ -983,7 +983,7 @@ Each photo is a HAL-style object with `_links` containing four image variants:
 }
 ```
 
-In the collection view (`/listings/all`), only **1 photo** is returned per listing. The individual listing endpoint (`/api/listings/{id}`) likely returns more.
+In the collection view (`/listings/all`), only **1 photo** is returned per listing. The individual listing endpoint (`/api/listings/{id}`) returns **all photos** (e.g., 3+) with multiple size variants.
 
 ### 4.15 Listing-Level `_links`
 
@@ -1223,13 +1223,57 @@ Individual listing detail — returns significantly more data than the collectio
 
 ```bash
 curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
-  "https://api.reverb.com/api/listings/97305407" | jq 'keys | length'
-# 46 keys (vs ~28 in collection view)
+  "https://api.reverb.com/api/listings/64997892" | jq '. | length'
+# 47 keys (vs 26 in collection view)
+
+curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+  "https://api.reverb.com/api/listings/all" | jq '.listings[0] | length'
+# 26 keys
 ```
 
-**Additional fields** not present in the collection view: `accepted_payment_methods`, `cloudinary_photos`, `draft`, `handmade`, `has_offer_for_buyer`, `in_watchlist`, `is_my_listing`, `live`, `local_pickup_only`, `location`, `offer_count`, `payment_policy`, `return_policy`, `same_day_shipping_ineligible`, `shipping_policy`, `sold_as_is`, `stats`, `upc_does_not_apply`, `videos`.
+**URL format:** The API accepts both the bare numeric ID and the full ID+slug form:
 
-**Photos:** Returns all photos (e.g., 3) rather than just 1 in the collection view.
+```bash
+# Both return the same listing:
+GET /api/listings/64997892
+GET /api/listings/64997892-positive-grid-bias-modulation-twin-effect-pedal
+```
+
+The `_links.self.href` always returns the canonical slug form.
+
+**Fields shared with the collection view (26):**
+
+`id`, `make`, `model`, `finish`, `year`, `title`, `created_at`, `shop_name`, `shop`, `description`, `condition`, `price`, `buyer_price`, `inventory`, `has_inventory`, `offers_enabled`, `categories`, `listing_currency`, `published_at`, `state`, `auction`, `shop_id`, `shipping`, `us_outlet`, `_links`, `photos`
+
+**21 additional fields only in the detail endpoint:**
+
+| Field | Type | Category |
+| -- | -- | -- |
+| `accepted_payment_methods` | array | User-facing — how to pay |
+| `location` | object | User-facing — item origin |
+| `shipping_policy` | string | User-facing — shipping terms |
+| `payment_policy` | string | User-facing — payment terms |
+| `return_policy` | object | User-facing — refund conditions |
+| `videos` | array | User-facing — demo/media |
+| `stats` | object | User-facing — views, watchers (social proof) |
+| `offer_count` | number | User-facing — demand signal |
+| `handmade` | boolean | User-facing — product characteristic |
+| `sold_as_is` | boolean | User-facing — no warranty disclosure |
+| `local_pickup_only` | boolean | User-facing — no shipping available |
+| `in_watchlist` | boolean | Auth-dependent — requires token |
+| `has_offer_for_buyer` | boolean | Auth-dependent — requires token |
+| `is_my_listing` | boolean | Auth-dependent — requires token |
+| `draft` | boolean | Internal — seller admin state |
+| `live` | boolean | Internal — seller admin state |
+| `cloudinary_photos` | array | Internal — duplicate CDN format |
+| `upc_does_not_apply` | boolean | Internal — seller metadata |
+| `origin_country_code` | string | Internal — redundant with `location` |
+| `same_day_shipping_ineligible` | boolean | Internal — minor, covered by `shipping_policy` |
+| `comparison_shopping_page_id` | string | Internal — Reverb routing |
+
+**Photos:** Returns **all photos** (e.g., 3+) with multiple size variants, vs. only 1 photo in the collection view.
+
+**Key takeaway for the detail page:** of the 21 extra fields, ~11 are worth rendering (payment methods, location, policies, videos, stats, handmade, sold-as-is, local-pickup-only). The remaining ~10 are internal/admin/auth-dependent state.
 
 ### 5.14 `/api/shops/{slug}`
 

@@ -24,7 +24,38 @@ Reverb's public API exposes: `GET /api/listings/{id}` → returns a single listi
 
 - `title`, `description`, `price`, `condition`, `shipping`, `photos[]`, `shop` info
 
-**Detail endpoint returns 46 fields** (vs. ~28 in the collection view). Additional fields include: `accepted_payment_methods`, `return_policy`, `shipping_policy`, `location`, `videos`, `stats`, `offer_count`, and more.
+**Detail endpoint returns 47 fields** (vs. 26 in the collection view). The 21 detail-only fields break down as follows:
+
+**Worth rendering on the detail page (user-facing value):**
+
+| Field | Type | Why it matters |
+| -- | -- | -- |
+| `accepted_payment_methods` | array | Buyer needs to know how to pay |
+| `location` | object | Where the item ships from |
+| `shipping_policy` | string | Shipping terms and timeframes |
+| `payment_policy` | string | Payment terms |
+| `return_policy` | object | Refund/return conditions — critical for buyer trust |
+| `videos` | array | Additional media (demo videos, etc.) |
+| `stats` | object | Views, watchers — social proof |
+| `offer_count` | number | Shows demand/activity |
+| `handmade` | boolean | Product characteristic worth highlighting |
+| `sold_as_is` | boolean | Important buyer disclosure (no warranty) |
+| `local_pickup_only` | boolean | Critical — changes shipping expectations entirely |
+
+**Internal/administrative (not worth rendering):**
+
+| Field | Type | Why skip |
+| -- | -- | -- |
+| `in_watchlist` | boolean | Requires auth — not for public detail page |
+| `draft` | boolean | Seller admin state |
+| `live` | boolean | Seller admin state |
+| `cloudinary_photos` | array | Duplicate of `photos` in different CDN format |
+| `upc_does_not_apply` | boolean | Seller metadata, irrelevant to buyers |
+| `origin_country_code` | string | Redundant — `location` already covers this |
+| `same_day_shipping_ineligible` | boolean | Minor detail, `shipping_policy` covers this |
+| `has_offer_for_buyer` | boolean | Requires auth |
+| `is_my_listing` | boolean | Requires auth |
+| `comparison_shopping_page_id` | string | Internal Reverb routing |
 
 **Photos:** The detail endpoint returns **all photos** (e.g., 3+) vs. only 1 in the collection view. Plan to iterate/display multiple images.
 
@@ -241,11 +272,11 @@ The listings page already fetched ~28 fields per listing from the collection end
 
 **Why you still need the API call:**
 
-- The detail endpoint returns **46 fields** vs. ~28 in the collection. You'd be missing `description`, `shipping_policy`, `return_policy`, `accepted_payment_methods`, `stats`, extra photos, etc.
+- The detail endpoint returns **47 fields** vs. 26 in the collection — 21 fields are detail-only. You'd be missing `shipping_policy`, `return_policy`, `accepted_payment_methods`, `stats`, `videos`, `location`, extra photos, etc. (Note: `description` is actually in both, but the collection version may be truncated.)
 - Direct-access routes (bookmarks, shared links) have no cached data — you need the API call anyway.
 - Stale data — the listing may have changed since the index was fetched (price drop, sold, etc.).
 
-**What to say:** "I could skip the API call if coming from the listings page, but the detail endpoint returns 18 additional fields I don't have. Plus direct-access routes need the call regardless. One code path that always fetches fresh data is simpler and more correct. If latency were a problem, I'd cache at the client level with a short TTL."
+**What to say:** "I could skip the API call if coming from the listings page, but the detail endpoint returns 21 additional fields I don't have — including return policy, payment methods, shipping policy, videos, and stats. Plus direct-access routes need the call regardless. One code path that always fetches fresh data is simpler and more correct. If latency were a problem, I'd cache at the client level with a short TTL."
 
 **Hybrid approach (if pressed):** render the page immediately with the 28 fields you have (title, thumbnail, price), then hydrate in the background with the full detail response. This is a progressive-enhancement pattern — fast first paint, then complete data. Worth mentioning but probably overkill for a 45-min interview.
 
