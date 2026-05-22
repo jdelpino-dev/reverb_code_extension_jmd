@@ -1608,6 +1608,81 @@ curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
 | `/api/autocomplete?query=` | Make/model suggestions | No | Search typeahead |
 | `/api/autosuggest?query=` | Rich search suggestions with links | No | Search UI |
 
+### 5.16 HATEOAS Root Links Not Covered Above
+
+The API root (`GET /api/`) exposes a `_links` map that serves as the canonical entry point. The sections above document all root links that return data anonymously. The following root link entries are **not documented** above because they require authentication, serve transactional flows, or are not API endpoints:
+
+```bash
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/" | jq '._links | keys'
+```
+
+#### Auth Flow Links
+
+| Root link key | URL | Purpose |
+|---|---|---|
+| `auth_email` | `/api/auth/email` | Email/password login |
+| `auth_facebook` | `/api/auth/facebook` | Facebook OAuth login |
+| `auth.forgot_password` | `/api/auth/forgot_password` | Password reset |
+| `auth.logout` | `/api/auth/logout` | Session termination |
+
+These are write-only endpoints (POST) for authentication flows — not useful for anonymous read clients.
+
+#### Account and Payment Links
+
+| Root link key | URL | Purpose |
+|---|---|---|
+| `accounts` | `/api/accounts` | Account creation/management |
+| `cart` | `/api/cart` | Shopping cart (session/auth-scoped) |
+| `payment_methods` | `/api/payment_methods` | Buyer payment methods |
+| `braintree.client_token` | `/api/braintree/client_token` | Payment processor token generation |
+
+These require an authenticated session. `cart` is transactional; `braintree` is payment infrastructure.
+
+#### Shop Admin Links
+
+| Root link key | URL | Purpose |
+|---|---|---|
+| `shop` | `/api/shop` | Current user's shop profile (auth) |
+| `shop.payment_methods` | `/api/shop/payment_methods` | Shop payment config |
+| `shop.listing_conditions` | `/api/shop/listing_conditions` | Shop-scoped conditions (may be restricted subset) |
+
+Note: `/api/shop` (current user's shop) differs from `/api/shops/{slug}` (public shop profile, documented in 5.14). The root link targets the authenticated user's own shop.
+
+#### Explicitly Auth-Gated Links
+
+| Root link key | URL | Notes |
+|---|---|---|
+| `wants` | `/api/wants` | Marked `requires_login: true` in root response |
+| `push_notifications.registrations` | `/api/push_notifications/registrations` | Device push token registration |
+| `my.*` (all sub-links) | `/api/my/...` | 20+ account-scoped endpoints (see Section 8) |
+
+The `my` namespace contains buying/selling orders, conversations, feedback, follows, lists, drafts, negotiations, and account settings — all requiring a Personal Access Token.
+
+#### Non-API Links
+
+| Root link key | URL | Notes |
+|---|---|---|
+| `terms_and_conditions.web` | `https://reverb.com/page/terms` | Web page link, not an API endpoint |
+
+#### Endpoints Documented Above but NOT in Root `_links`
+
+Conversely, the report documents several public endpoints that are **not** advertised in the HATEOAS root:
+
+| Endpoint | How discovered |
+|---|---|
+| `/api/listing_conditions` | API docs; root only links `/api/shop/listing_conditions` |
+| `/api/shops/{slug}` | Listing `_links.shop`; root links `/api/shop` (auth) |
+| `/api/listings/all` | API docs / direct testing; root links `/api/listings` |
+| `/api/listings/{id}` | Listing `_links.self`; not in root |
+| `/api/articles/{slug}` | Article `_links.self`; not in root |
+| `/api/priceguide` | Root links as `price_guides` |
+
+This is consistent with HATEOAS principles — sub-resources and parameterized endpoints are discoverable by following links from parent resources, not from the root. The root provides entry points; navigation reveals the rest.
+
 ---
 
 ## 6. Complete Command Reference
@@ -1957,7 +2032,7 @@ curl -s -I \
 12. **Headers materially affect response shape** — `Accept-Version` defaults to 1.0; 3.0 is the current recommended version. `Accept-Language`, `X-Display-Currency`, and `X-Shipping-Region` can alter localization, price display, and listing visibility. The same endpoint can return different data depending on these headers.
 13. **The public API surface is broad** — 16 publicly accessible endpoints exist (see §5), covering categories, listings, conditions, currencies, countries, shipping regions/providers, collections, price guides, articles, search suggestions, individual listings, and shop profiles. All work without authentication.
 14. **The API root is the HATEOAS entry point** — `GET /api` returns a `_links` map that serves as the discovery surface for the entire API. A properly built client starts here and follows links rather than consulting external documentation for URL patterns.
-15. **Reference data endpoints form a complete client bootstrap** — A client can fully initialize its UI (category filters, condition dropdowns, currency selectors, shipping region pickers, carrier lists) from public reference endpoints alone, before any user interaction or authentication occurs.
+15. **Reference data endpoints form a complete client bootstrap** — A client can fully initialize its UI (category filters, condition dropdowns, currency selectors, shipping region pickers, carrier lists) from public reference endpoints alone, before any user interaction or authentication occurs. Concretely: on a cold app launch, you can fire 5-6 parallel GETs (`/api/categories/flat`, `/api/listing_conditions`, `/api/currencies/display`, `/api/shipping/regions`, `/api/shipping/providers`, `/api/countries`) and populate every dropdown and filter before any login prompt or session exists. This removes authentication from the critical render path — the app is interactive immediately. Because these endpoints are all 24-hour CDN-cached and return small, stable payloads, the bootstrap calls are practically free and can even be cached client-side between sessions.
 16. **Some metadata endpoints are dual-mode** — Endpoints like `/api/listing_conditions` work anonymously (returning general metadata) but return account-specific availability when called with a shop token (e.g., B-Stock and Mint conditions are only available to enabled accounts).
 17. **Rate limits are behaviorally enforced** — Reverb returns 429 responses for excessive volume but does not publish precise quotas. Apps with higher requirements can request increases. A mature integration should include rate-limit backoff, pagination via `_links.next`, and throttled requests.
 
