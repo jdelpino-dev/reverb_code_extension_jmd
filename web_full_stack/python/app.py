@@ -59,6 +59,12 @@ def listings():
     return render_template("listings.html", listings=_load_listings())
 
 
+@app.route("/listings/<string:listing_id>")
+def listing_detail(listing_id):
+    listing = _load_listing_detail(listing_id)
+    return render_template("listing_detail.html", listing=listing)
+
+
 def _search_categories(query):
     if not query:
         return []
@@ -80,3 +86,7 @@ def _load_categories():
 # NOTE: _load_listings() for consistency. Also, for now, just a thin service layer
 def _load_listings():
     return ReverbClient().listings()
+
+
+def _load_listing_detail(listing_id):
+    return ReverbClient().listing_detail(listing_id)

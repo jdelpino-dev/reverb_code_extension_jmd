@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+{% if listing %}
+<div class="container my-4">
+    <a href="{{ url_for('listings') }}" class="btn btn-outline-secondary mb-3">
+        &larr; Back to Listings
+    </a>
+
+    <div class="row">
+        <div class="col-md-6">
+            <img src="{{ listing['photos'][0]['_links']['large_crop']['href'] }}" alt="{{ listing['title'] }}"
+                class="img-fluid rounded mb-3" />
+        </div>
+
+        <div class="col-md-6">
+            <h1 class="h4 mb-2">{{ listing['title'] }}</h1>
+            <p class="text-muted mb-1">
+                Sold by {{ listing['shop_name'].title() }}
+            </p>
+
+            <p class="h5 text-success mb-1">
+                {{ listing['price']['display'] }}
+            </p>
+
+            <p class="mb-1">
+                <strong>Pay by:</strong>
+                {% for method in listing['accepted_payment_methods'] %}
+                <span class="mr-1">
+                    {{ method.replace('_', ' ').title() }}{% if not loop.last %} | {% endif %}</span>
+                {% endfor %}
+            </p>
+
+            <p class="mb-1">
+                <strong>Ships from:</strong>
+                {{ listing['location']['display_location'] }}
+            </p>
+
+            <hr class="my-1" />
+
+            <p class="mb-1">
+                <strong>Make:</strong> {{ listing['make'] }}
+            </p>
+
+            <p class="mb-1">
+                <strong>Model:</strong> {{ listing['model'] }}
+            </p>
+
+            <p class="mb-1">
+                <strong>Year:</strong> {{ listing['year'] }}
+            </p>
+
+            <hr class="my-1" />
+
+            <div class="mb-3">
+                {{ listing['description'] | safe }}
+            </div>
+
+            <hr class="my-2" />
+
+            <p class="mb-1">
+                {% for cat in listing['categories'] %}
+                <span class="badge badge-secondary">{{ cat['full_name'] }}</span>
+                {% endfor %}
+            </p>
+
+            <!-- <hr /> -->
+
+            <p class="mb-1">
+                <!-- <strong>More Info:</strong> -->
+
+                {% if listing['offers_enabled'] %}
+                <span class="badge badge-success mr-1">Offers accepted</span>
+                {% endif %}
+
+                {% if listing['local_pickup_only'] %}
+                <span class="badge badge-warning mr-1">Local pickup only</span>
+                {% endif %}
+
+                {% if listing['sold_as_is'] %}
+                <span class="badge badge-warning mr-1">Sold as-is</span>
+                {% endif %}
+
+                {% if listing['handmade'] %}
+                <span class="badge badge-info mr-1">Handmade</span>
+                {% endif %}
+
+                <!-- <span class="badge badge-info mr-1">
+                    {{ listing['condition']['display_name'] }}
+                </span> -->
+
+
+            </p>
+
+            <hr class="my-2" />
+            <!-- TODO: DELETE THIS DUPLICATED DEBUGGING BADGES -->
+            <p class="mb-1">
+                <span class="badge badge-success mr-1">Offers accepted</span>
+                <span class="badge badge-warning mr-1">Local pickup only</span>
+                <span class="badge badge-warning mr-1">Sold as-is</span>
+                <span class="badge badge-info mr-1">Handmade</span>
+                <span class="badge badge-info mr-1">
+                    {{ listing['condition']['display_name'] }}
+                </span>
+            </p>
+
+            <hr class="my-2" />
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <h2 class="h5"><strong>More Details</strong></h2>
+
+        <p class="mb-1">
+            <strong>Return Policy:</strong>
+            {{ listing['return_policy']['description'] | safe }}
+        </p>
+
+        <p>
+            <strong>Shipping Policy:</strong>
+            {{ listing['shipping_policy'] | safe }}
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

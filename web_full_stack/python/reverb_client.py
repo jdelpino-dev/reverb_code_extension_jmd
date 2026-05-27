@@ -14,6 +14,9 @@ class ReverbClient:
     def listings(self, per_page=10):
         return self._get("/listings/all", {"per_page": per_page})["listings"]
 
+    def listing_detail(self, listing_id):
+        return self._get(f"/listings/{listing_id}")
+
     def categories(self):
         return self._get("/categories/flat")["categories"]
 
