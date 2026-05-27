@@ -85,8 +85,22 @@ def _load_categories():
 
 # NOTE: _load_listings() for consistency. Also, for now, just a thin service layer
 def _load_listings():
-    return ReverbClient().listings()
+    listings = ReverbClient().listings()
+    for listing in listings:
+        listing["slug"] = _get_listing_slug(listing)
+    return listings
 
 
 def _load_listing_detail(listing_id):
-    return ReverbClient().listing_detail(listing_id)
+    listing = ReverbClient().listing_detail(listing_id)
+    if listing:
+        listing["accepted_payment_methods"] = [
+            method.replace("_", " ").title()
+            for method in listing.get("accepted_payment_methods", [])
+        ]
+    return listing
+
+def _get_listing_slug(listing):
+    """Extract human-friendly id+slug from _links.self.href."""
+    href = listing["_links"]["self"]["href"]
+    return href.rstrip("/").split("/")[-1]

@@ -1,3 +1,11 @@
 .container {
     padding-top: 100px;
 }
+
+.description-toggle.collapsing {
+    transition: none;
+}
+
+.section-divider {
+    border-top: 1px solid rgba(128, 128, 128, 0.493);
+}

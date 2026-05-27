@@ -16,100 +16,116 @@
 
         <div class="col-md-6">
             <h1 class="h4 mb-2">{{ listing['title'] }}</h1>
-            <p class="text-muted mb-1">
-                Sold by {{ listing['shop_name'].title() }}
-            </p>
 
-            <p class="h5 text-success mb-1">
-                {{ listing['price']['display'] }}
-            </p>
+            <section class="mb-2" aria-label="Purchase information">
+                <p class="text-muted mb-1">
+                    Sold by {{ listing['shop_name'].title() }}
+                </p>
 
-            <p class="mb-1">
-                <strong>Pay by:</strong>
-                {% for method in listing['accepted_payment_methods'] %}
-                <span class="mr-1">
-                    {{ method.replace('_', ' ').title() }}{% if not loop.last %} | {% endif %}</span>
-                {% endfor %}
-            </p>
+                <p class="h5 text-success mb-1">
+                    {{ listing['price']['display'] }}
+                </p>
 
-            <p class="mb-1">
-                <strong>Ships from:</strong>
-                {{ listing['location']['display_location'] }}
-            </p>
+                <p class="mb-1">
+                    <strong>Pay with:</strong>
+                    {% for method in listing['accepted_payment_methods'] %}
+                    <span class="mr-1">
+                        {{ method }}{% if not loop.last %} | {% endif %}</span>
+                    {% endfor %}
+                </p>
 
-            <hr class="my-1" />
+                <p class="mb-1">
+                    <strong>Ships from:</strong>
+                    {{ listing['location']['display_location'] }}
+                </p>
+            </section>
 
-            <p class="mb-1">
-                <strong>Make:</strong> {{ listing['make'] }}
-            </p>
+            <hr class="my-1 section-divider" />
 
-            <p class="mb-1">
-                <strong>Model:</strong> {{ listing['model'] }}
-            </p>
+            <section class="mb-2" aria-label="Specifications">
+                <p class="mb-1">
+                    <strong>Make:</strong> {{ listing['make'] }}
+                </p>
 
-            <p class="mb-1">
-                <strong>Year:</strong> {{ listing['year'] }}
-            </p>
+                <p class="mb-1">
+                    <strong>Model:</strong> {{ listing['model'] }}
+                </p>
 
-            <hr class="my-1" />
+                <p class="mb-1">
+                    <strong>Year:</strong> {{ listing['year'] }}
+                </p>
 
-            <div class="mb-3">
-                {{ listing['description'] | safe }}
-            </div>
+                <p class="mb-1">
+                    <strong>Condition:</strong> {{ listing['condition']['display_name'] }}
+                </p>
+            </section>
 
-            <hr class="my-2" />
+            <hr class="my-1 section-divider" />
 
-            <p class="mb-1">
-                {% for cat in listing['categories'] %}
-                <span class="badge badge-secondary">{{ cat['full_name'] }}</span>
-                {% endfor %}
-            </p>
+            <section class="mb-2" aria-label="Description">
+                {% if listing['description']|length > 350 %}
+                <div class="mb-3">
+                    <div class="collapse show description-toggle">
+                        <p>{{ listing['description'][:350] | safe }}...</p>
+                    </div>
 
-            <!-- <hr /> -->
+                    <div class="collapse description-toggle">
+                        <p>{{ listing['description'] | safe }}</p>
+                    </div>
 
-            <p class="mb-1">
-                <!-- <strong>More Info:</strong> -->
-
-                {% if listing['offers_enabled'] %}
-                <span class="badge badge-success mr-1">Offers accepted</span>
+                    <button class="btn btn-link p-0 collapse show description-toggle" type="button"
+                        data-toggle="collapse" data-target=".description-toggle">
+                        Read more
+                    </button>
+                    <button class="btn btn-link p-0 collapse description-toggle" type="button" data-toggle="collapse"
+                        data-target=".description-toggle">
+                        Read less
+                    </button>
+                </div>
+                {% else %}
+                <div class="mb-3">
+                    <p>{{ listing['description'] | safe }}</p>
+                </div>
                 {% endif %}
+            </section>
 
-                {% if listing['local_pickup_only'] %}
-                <span class="badge badge-warning mr-1">Local pickup only</span>
-                {% endif %}
+            <hr class="my-2 section-divider" />
 
-                {% if listing['sold_as_is'] %}
-                <span class="badge badge-warning mr-1">Sold as-is</span>
-                {% endif %}
+            <section class="mb-2" aria-label="Categories">
+                <p class="mb-1">
+                    {% for cat in listing['categories'] %}
+                    <span class="badge badge-secondary">{{ cat['full_name'] }}</span>
+                    {% endfor %}
+                </p>
+            </section>
 
-                {% if listing['handmade'] %}
-                <span class="badge badge-info mr-1">Handmade</span>
-                {% endif %}
+            <!-- <hr class="my-2 section-divider" /> -->
 
-                <!-- <span class="badge badge-info mr-1">
-                    {{ listing['condition']['display_name'] }}
-                </span> -->
+            <section class="mb-2" aria-label="Listing attributes">
+                <p class="mb-1">
+                    {% if listing['offers_enabled'] %}
+                    <span class="badge badge-success mr-1">Offers accepted</span>
+                    {% endif %}
 
+                    {% if listing['local_pickup_only'] %}
+                    <span class="badge badge-warning mr-1">Local pickup only</span>
+                    {% endif %}
 
-            </p>
+                    {% if listing['sold_as_is'] %}
+                    <span class="badge badge-warning mr-1">Sold as-is</span>
+                    {% endif %}
 
-            <hr class="my-2" />
-            <!-- TODO: DELETE THIS DUPLICATED DEBUGGING BADGES -->
-            <p class="mb-1">
-                <span class="badge badge-success mr-1">Offers accepted</span>
-                <span class="badge badge-warning mr-1">Local pickup only</span>
-                <span class="badge badge-warning mr-1">Sold as-is</span>
-                <span class="badge badge-info mr-1">Handmade</span>
-                <span class="badge badge-info mr-1">
-                    {{ listing['condition']['display_name'] }}
-                </span>
-            </p>
+                    {% if listing['handmade'] %}
+                    <span class="badge badge-info mr-1">Handmade</span>
+                    {% endif %}
+                </p>
+            </section>
 
-            <hr class="my-2" />
+            <hr class="my-2 section-divider" />
         </div>
     </div>
 
-    <div class="mt-4">
+    <section class="mt-4" aria-label="More details">
         <h2 class="h5"><strong>More Details</strong></h2>
 
         <p class="mb-1">
@@ -121,7 +137,7 @@
             <strong>Shipping Policy:</strong>
             {{ listing['shipping_policy'] | safe }}
         </p>
-    </div>
+    </section>
 </div>
 {% endif %}
 
