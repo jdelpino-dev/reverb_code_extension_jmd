@@ -8,20 +8,13 @@ github_attestations = false
 [tools]
 python = ["3.10", "3.8"]
 uv = "latest"
+"pipx:pipenv" = "2024.4.0"
 ruby = "3.2"
 node = "lts-gallium"
 
-[env]
-PIPENV_VENV_IN_PROJECT = "0"
-FLASK_APP = "app.py"
-FLASK_DEBUG = "1"
-
 [tasks."setup:web-python"]
 description = "Setup web_full_stack/python (Flask + Pipenv)"
-run = """
-pip install 'pipenv==2024.4.0'
-cd web_full_stack/python && (pipenv --rm || true) && rm -f Pipfile.lock && pipenv install
-"""
+run = "cd web_full_stack/python && (pipenv --rm || true) && rm -f Pipfile.lock && pipenv install"
 
 [tasks."setup:web-js"]
 description = "Setup web_full_stack/js (React + CRA)"
