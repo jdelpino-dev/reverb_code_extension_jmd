@@ -1524,6 +1524,54 @@ GET /api/listings/64997892-positive-grid-bias-modulation-twin-effect-pedal
 
 The `_links.self.href` always returns the canonical slug form.
 
+#### Slug Resolution Quirk: Only the Numeric ID Prefix Matters
+
+The API resolves listings **exclusively by the numeric prefix**, that is, **the item's ID** (everything before the first `-` in the path segment). The slug suffix is entirely ignored — you can append arbitrary text after the ID and the API still returns the correct listing with a `200 OK`.
+
+**Verified behavior (2026-05-30):**
+
+```bash
+# 1. Canonical slug — works as expected
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/listings/97706186-vintage-1960-s-zildjian-13-a-avedis-hi-hat-drum-cymbals-great-sound" \
+  | jq "._links.self.href"
+# → "https://api.reverb.com/api/listings/97706186-vintage-1960-s-zildjian-13-a-avedis-hi-hat-drum-cymbals-great-sound"
+
+# 2. Garbage appended to the real slug — still resolves!
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/listings/97706186-vintage-1960-s-zildjian-13-a-avedis-hi-hat-drum-cymbals-great-sound-647812647816784" \
+  | jq "._links.self.href"
+# → "https://api.reverb.com/api/listings/97706186-vintage-1960-s-zildjian-13-a-avedis-hi-hat-drum-cymbals-great-sound"
+
+# 3. Completely fabricated slug after the ID — still resolves!
+curl -s \
+  -H "Accept: application/hal+json" \
+  -H "Accept-Version: 3.0" \
+  -H "Content-Type: application/hal+json" \
+  "https://api.reverb.com/api/listings/97706186-647812647816784" \
+  | jq "._links.self.href"
+# → "https://api.reverb.com/api/listings/97706186-vintage-1960-s-zildjian-13-a-avedis-hi-hat-drum-cymbals-great-sound"
+```
+
+**What this tells us:**
+
+1. The server parses the path segment by extracting the leading numeric characters (up to the first `-`) as the listing ID, then discards the rest.
+2. The slug suffix is purely cosmetic / SEO-friendly — it plays no role in resource resolution.
+3. The `_links.self.href` in the response always contains the **canonical** slug regardless of what garbage was sent in the request URL.
+4. The API does **not** return a `301 Redirect` to the canonical URL when the slug is wrong — it silently serves the resource with a `200`. This means multiple URLs resolve to the same resource without any signal to clients or crawlers that they are non-canonical.
+
+**Implications for client code:**
+
+- URL construction only requires the numeric listing ID; the slug is optional and can be any string (or omitted entirely).
+- Clients should **not** rely on slug matching for identity comparisons — two different URL strings can refer to the same listing.
+- If building canonical URLs for caching or deduplication, always use `_links.self.href` from the response, not the request URL.
+
 **Fields shared with the collection view (26):**
 
 `id`, `make`, `model`, `finish`, `year`, `title`, `created_at`, `shop_name`, `shop`, `description`, `condition`, `price`, `buyer_price`, `inventory`, `has_inventory`, `offers_enabled`, `categories`, `listing_currency`, `published_at`, `state`, `auction`, `shop_id`, `shipping`, `us_outlet`, `_links`, `photos`
@@ -2035,6 +2083,7 @@ curl -s -I \
 15. **Reference data endpoints form a complete client bootstrap** — A client can fully initialize its UI (category filters, condition dropdowns, currency selectors, shipping region pickers, carrier lists) from public reference endpoints alone, before any user interaction or authentication occurs. Concretely: on a cold app launch, you can fire 5-6 parallel GETs (`/api/categories/flat`, `/api/listing_conditions`, `/api/currencies/display`, `/api/shipping/regions`, `/api/shipping/providers`, `/api/countries`) and populate every dropdown and filter before any login prompt or session exists. This removes authentication from the critical render path — the app is interactive immediately. Because these endpoints are all 24-hour CDN-cached and return small, stable payloads, the bootstrap calls are practically free and can even be cached client-side between sessions.
 16. **Some metadata endpoints are dual-mode** — Endpoints like `/api/listing_conditions` work anonymously (returning general metadata) but return account-specific availability when called with a shop token (e.g., B-Stock and Mint conditions are only available to enabled accounts).
 17. **Rate limits are behaviorally enforced** — Reverb returns 429 responses for excessive volume but does not publish precise quotas. Apps with higher requirements can request increases. A mature integration should include rate-limit backoff, pagination via `_links.next`, and throttled requests.
+18. **Listing slug resolution is ID-only** — The `/api/listings/{id-slug}` endpoint resolves exclusively by the numeric prefix before the first `-`. The slug suffix is ignored entirely: you can append arbitrary garbage text and still get a `200` with the correct listing. The API does not redirect to the canonical URL — it silently serves the resource. Clients must use `_links.self.href` from the response for canonical URL comparisons, never the request URL (see §5.13 for full details).
 
 ---
 
