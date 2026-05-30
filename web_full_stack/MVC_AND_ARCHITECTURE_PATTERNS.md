@@ -5,7 +5,7 @@ describe modern full-stack systems.
 
 ---
 
-## What MVC actually is
+## What MVC actually is (CMV)
 
 MVC is a **presentation pattern** for separating UI, data, and controlling
 logic within a single application boundary. It was designed for interactive UIs
@@ -19,11 +19,13 @@ Key insight: MVC assumes all three layers live in the **same process** and
 collaborate around rendering a UI. It doesn't describe network boundaries,
 API contracts, or multi-service systems.
 
+The correct order is more CMV than MVC: Controller → Model → View.
+
 ---
 
 ## When MVC applies cleanly
 
-### Classic server-rendered monolith (Rails, Django, Laravel, ASP.NET MVC)
+### Classic server-rendered monolith (Rails, Django, Laravel, ASP.NET MVC, Flask)
 
 ```text
 Browser → Controller → Model (ORM/DB) → Server-rendered View → HTML → Browser
@@ -32,7 +34,14 @@ Browser → Controller → Model (ORM/DB) → Server-rendered View → HTML → 
 All three layers are in one process. The framework enforces the separation.
 This is MVC's natural habitat.
 
-### This Flask app (partially)
+In the case of Flask fullstack applications, Flask and Werkzeug collectively
+perform many of the controller/dispatcher responsibilities: receiving requests,
+parsing them into request objects, matching URLs to endpoints, invoking
+the correct handler, managing request/response lifecycles, and returning
+responses. The route function then performs the application-specific
+controller logic for a particular endpoint.
+
+### This Flask app (partially) -> ExVC
 
 ```text
 Browser → Route/Controller → (no Model) → Jinja2 View → HTML → Browser
