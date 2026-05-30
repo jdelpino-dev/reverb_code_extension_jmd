@@ -298,20 +298,6 @@ Trade-offs:
 
 A listing may have multiple categories (the API returns an array). Breadcrumbs work cleanly for one path but become awkward for 2+. Options: show only the primary (first) category as a breadcrumb, or stack multiple breadcrumb trails vertically. The Reverb website typically shows one primary breadcrumb trail — suggesting one "canonical" category per listing in practice.
 
-**Future Enhancement (Categories as Breadcrumbs):** Reverb's own website displays categories as hierarchical breadcrumbs (e.g., `Drums & Percussion › Snare Drums › Acoustic Snare Drums`) rather than flat badges. This better communicates the taxonomy depth and matches user mental models for navigation.
-
-Trade-offs:
-
-| Aspect | Badges (current) | Breadcrumbs |
-| --- | --- | --- |
-| Multiple categories | Shows all simultaneously | Can only display one path per line |
-| Hierarchy | Lost — flat list | Preserved — shows parent → child |
-| Information density | Compact | Takes more horizontal space |
-| Navigation affordance | None | Each crumb could link to a category listing |
-| Familiarity | Generic | Matches Reverb's own UX |
-
-A listing may have multiple categories (the API returns an array). Breadcrumbs work cleanly for one path but become awkward for 2+. Options: show only the primary (first) category as a breadcrumb, or stack multiple breadcrumb trails vertically. The Reverb website typically shows one primary breadcrumb trail — suggesting one "canonical" category per listing in practice.
-
 #### Specifications
 
 - Make
@@ -339,15 +325,12 @@ Long descriptions use progressive disclosure.
 
 Bootstrap is already included in the base template. We leverage it to avoid writing custom CSS for standard UI patterns — keeping the implementation focused on structure and logic rather than styling.
 
-Bootstrap is already included in the base template. We leverage it to avoid writing custom CSS for standard UI patterns — keeping the implementation focused on structure and logic rather than styling.
-
 ### Grid System
 
 ```text
 container → row → col-md-6
 ```
 
-Creates a two-column responsive layout (image | details) that stacks vertically on small screens. This is the standard product-page pattern.
 Creates a two-column responsive layout (image | details) that stacks vertically on small screens. This is the standard product-page pattern.
 
 ### Utility Classes
@@ -366,16 +349,6 @@ Used instead of custom CSS for spacing, typography, and visual treatment:
 
 - **Navbar:** `navbar navbar-expand-lg navbar-light fixed-top bg-info` — persistent top navigation with links to Categories and Listings
 - **Alerts:** `alert alert-{{ category }}` — renders Flask flash messages (used for search feedback and future error messages)
-
-### Interview Talking Points (Utility Classes)
-
-> **Spacing:** "I used Bootstrap spacing utilities instead of custom CSS for margins and padding. This keeps the implementation consistent with Bootstrap's spacing scale, reduces stylesheet complexity, and makes layout intent immediately visible in the markup."
->
-> **Typography / Semantic vs. Visual:** "I use `<h1 class="h4">` to separate semantic meaning from visual size. The element is an H1 for document outline and accessibility, but renders at H4 size for visual proportion. This shows understanding of the distinction between semantic HTML and visual presentation."
->
-> **Image:** "I used `img-fluid` so the image scales responsively within the Bootstrap grid while preserving its aspect ratio. I added `rounded` to soften the presentation without custom CSS. I avoided heavier styling like thumbnails or shadows because the image should remain the primary visual focus."
->
-> **Color choices:** "`text-success` on the price draws the eye with green — the natural color for financial/positive signals. `text-muted` on the seller name communicates it's important but secondary to title and price. These are deliberate information-hierarchy signals, not decoration."
 
 ### Interview Talking Points (Utility Classes)
 
