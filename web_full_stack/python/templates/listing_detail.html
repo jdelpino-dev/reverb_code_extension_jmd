@@ -91,11 +91,11 @@
             <!-- Collapse Toggle Pair for progressive disclosure, using built-in Bootstrap collapse component -->
             <!-- Bootstrap collapse toggle pair: short text + Read more start visible; full text + Read less start hidden. -->
             <section class="mb-2" aria-label="Description">
-                {% if listing['description']|length > 350 %}
+                {% if listing['truncated_description'] %}
                 <div class="mb-3">
 
                     <div class="collapse show description-toggle">
-                        <p>{{ listing['description'][:350] | safe }}...</p>
+                        <p>{{ listing['truncated_description'] | safe }}...</p>
 
                         <button class="btn btn-link p-0" type="button" data-toggle="collapse"
                             data-target=".description-toggle" aria-expanded="false">

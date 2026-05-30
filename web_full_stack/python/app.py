@@ -96,6 +96,7 @@ def _load_listing_detail(listing_slug):
     listing = ReverbClient().listing_detail(listing_id)
     listing["accepted_payment_methods_list"] = _get_payment_methods_list(listing)
     listing["condition_with_type"] = _get_condition_with_type(listing)
+    listing["truncated_description"] = _get_truncated_description(listing)
     return listing
 
 
@@ -123,3 +124,11 @@ def _get_listing_slug(listing):
 def _get_listing_id(listing_slug):
     """Extract the listing ID from the slug."""
     return listing_slug.split("-")[0]
+
+
+def _get_truncated_description(listing, max_length=350):
+    """Return a truncated description or None if truncation isn't needed."""
+    description = listing.get("description", "")
+    if len(description) <= max_length:
+        return None
+    return description[:max_length]
