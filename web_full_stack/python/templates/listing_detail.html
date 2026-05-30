@@ -28,7 +28,7 @@
 
                 <p class="mb-1">
                     <strong>Pay with:</strong>
-                    {% for method in listing['accepted_payment_methods'] %}
+                    {% for method in listing['accepted_payment_methods_list'] %}
                     <span class="mr-1">
                         {{ method }}{% if not loop.last %} | {% endif %}</span>
                     {% endfor %}
