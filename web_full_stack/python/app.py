@@ -93,12 +93,25 @@ def _load_listings():
 
 def _load_listing_detail(listing_id):
     listing = ReverbClient().listing_detail(listing_id)
-    if listing:
-        listing["accepted_payment_methods"] = [
-            method.replace("_", " ").title()
-            for method in listing.get("accepted_payment_methods", [])
-        ]
+    listing["accepted_payment_methods_list"] = _get_payment_methods_list(listing)
+    listing["condition_with_type"] = _get_condition_with_type(listing)
     return listing
+
+
+def _get_payment_methods_list(listing):
+    return [
+        method.replace("_", " ").title()
+        for method in listing.get("accepted_payment_methods", [])
+    ]
+
+
+def _get_condition_with_type(listing):
+    condition = listing.get("condition", {}).get("display_name")
+    if condition == "brand-new":
+        return f"Brand New - {condition}"
+    else:
+        return f"Used - {condition}"
+
 
 def _get_listing_slug(listing):
     """Extract human-friendly id+slug from _links.self.href."""

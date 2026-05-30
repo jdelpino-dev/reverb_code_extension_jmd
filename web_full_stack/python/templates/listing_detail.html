@@ -40,69 +40,14 @@
                 </p>
             </section>
 
-            <hr class="my-1 section-divider" />
-
-            <section class="mb-2" aria-label="Specifications">
-                <p class="mb-1">
-                    <strong>Make:</strong> {{ listing['make'] }}
-                </p>
-
-                <p class="mb-1">
-                    <strong>Model:</strong> {{ listing['model'] }}
-                </p>
-
-                <p class="mb-1">
-                    <strong>Year:</strong> {{ listing['year'] }}
-                </p>
-
-                <p class="mb-1">
-                    <strong>Condition:</strong> {{ listing['condition']['display_name'] }}
-                </p>
-            </section>
-
-            <hr class="my-1 section-divider" />
-
-            <section class="mb-2" aria-label="Description">
-                {% if listing['description']|length > 350 %}
-                <div class="mb-3">
-                    <div class="collapse show description-toggle">
-                        <p>{{ listing['description'][:350] | safe }}...</p>
-                    </div>
-
-                    <div class="collapse description-toggle">
-                        <p>{{ listing['description'] | safe }}</p>
-                    </div>
-
-                    <button class="btn btn-link p-0 collapse show description-toggle" type="button"
-                        data-toggle="collapse" data-target=".description-toggle">
-                        Read more
-                    </button>
-                    <button class="btn btn-link p-0 collapse description-toggle" type="button" data-toggle="collapse"
-                        data-target=".description-toggle">
-                        Read less
-                    </button>
-                </div>
-                {% else %}
-                <div class="mb-3">
-                    <p>{{ listing['description'] | safe }}</p>
-                </div>
-                {% endif %}
-            </section>
-
             <hr class="my-2 section-divider" />
 
-            <section class="mb-2" aria-label="Categories">
+            <section class="mb-2" aria-label="Listing attributes and categories">
                 <p class="mb-1">
-                    {% for cat in listing['categories'] %}
-                    <span class="badge badge-secondary">{{ cat['full_name'] }}</span>
-                    {% endfor %}
-                </p>
-            </section>
+                    {%if listing['condition'] %}
+                    <span class="badge badge-info">{{ listing['condition_with_type'] }}</span>
+                    {% endif %}
 
-            <!-- <hr class="my-2 section-divider" /> -->
-
-            <section class="mb-2" aria-label="Listing attributes">
-                <p class="mb-1">
                     {% if listing['offers_enabled'] %}
                     <span class="badge badge-success mr-1">Offers accepted</span>
                     {% endif %}
@@ -118,7 +63,68 @@
                     {% if listing['handmade'] %}
                     <span class="badge badge-info mr-1">Handmade</span>
                     {% endif %}
+
+                    {% for cat in listing['categories'] %}
+                    <span class="badge badge-secondary">{{ cat['full_name'] }}</span>
+                    {% endfor %}
                 </p>
+            </section>
+
+            <hr class="my-1 section-divider" />
+
+            <section class="mb-2" aria-label="Specifications">
+                <p class="mb-1">
+                    <strong>Make:</strong> {{ listing['make'] }}
+                </p>
+
+                <p class="mb-1">
+                    <strong>Model:</strong> {{ listing['model'] }}
+                </p>
+
+                <p class="mb-1">
+                    <strong>Year:</strong> {{ listing['year'] }}
+                </p>
+            </section>
+
+            <hr class="my-1 section-divider" />
+
+            <!-- Collapse Toggle Pair for progressive disclosure, using built-in Bootstrap collapse component -->
+            <!-- Bootstrap collapse toggle pair: short text + Read more start visible; full text + Read less start hidden. -->
+            <section class="mb-2" aria-label="Description">
+                {% if listing['description']|length > 350 %}
+                <div class="mb-3">
+
+                    <div class="collapse show description-toggle">
+                        <p>{{ listing['description'][:350] | safe }}...</p>
+
+                        <button class="btn btn-link p-0" type="button" data-toggle="collapse"
+                            data-target=".description-toggle" aria-expanded="false">
+                            Read more
+                        </button>
+                    </div>
+
+                    <div class="collapse description-toggle">
+                        <!-- Read less appears above and below long text so users can collapse from either position. -->
+                        <button class="btn btn-link p-0" type="button" data-toggle="collapse"
+                            data-target=".description-toggle" aria-expanded="true">
+                            Read less
+                        </button>
+
+                        <p>{{ listing['description'] | safe }}</p>
+
+                        <!-- Read less appears above and below long text so users can collapse from either position. -->
+                        <button class="btn btn-link p-0" type="button" data-toggle="collapse"
+                            data-target=".description-toggle" aria-expanded="true">
+                            Read less
+                        </button>
+                    </div>
+
+                </div>
+                {% else %}
+                <div class="mb-3">
+                    <p>{{ listing['description'] | safe }}</p>
+                </div>
+                {% endif %}
             </section>
 
             <hr class="my-2 section-divider" />
