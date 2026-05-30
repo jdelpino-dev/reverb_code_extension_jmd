@@ -9,7 +9,7 @@
       <img src="{{ listing['photos'][0]['_links']['thumbnail']['href'] }}" />
     </div>
     <h2 class="p-2">
-      <a href="{{ url_for('listing_detail', listing_id=listing['slug']) }}">
+      <a href="{{ url_for('listing_detail', listing_slug=listing['slug']) }}">
         {{ listing['title'] }}
       </a>
     </h2>

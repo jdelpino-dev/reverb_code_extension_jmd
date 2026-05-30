@@ -59,9 +59,9 @@ def listings():
     return render_template("listings.html", listings=_load_listings())
 
 
-@app.route("/listings/<string:listing_id>")
-def listing_detail(listing_id):
-    listing = _load_listing_detail(listing_id)
+@app.route("/listings/<string:listing_slug>")
+def listing_detail(listing_slug):
+    listing = _load_listing_detail(listing_slug)
     return render_template("listing_detail.html", listing=listing)
 
 
@@ -91,7 +91,8 @@ def _load_listings():
     return listings
 
 
-def _load_listing_detail(listing_id):
+def _load_listing_detail(listing_slug):
+    listing_id = _get_listing_id(listing_slug)
     listing = ReverbClient().listing_detail(listing_id)
     listing["accepted_payment_methods_list"] = _get_payment_methods_list(listing)
     listing["condition_with_type"] = _get_condition_with_type(listing)
@@ -117,3 +118,8 @@ def _get_listing_slug(listing):
     """Extract human-friendly id+slug from _links.self.href."""
     href = listing["_links"]["self"]["href"]
     return href.rstrip("/").split("/")[-1]
+
+
+def _get_listing_id(listing_slug):
+    """Extract the listing ID from the slug."""
+    return listing_slug.split("-")[0]
