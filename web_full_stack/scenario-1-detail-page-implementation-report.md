@@ -377,6 +377,16 @@ Used instead of custom CSS for spacing, typography, and visual treatment:
 >
 > **Color choices:** "`text-success` on the price draws the eye with green — the natural color for financial/positive signals. `text-muted` on the seller name communicates it's important but secondary to title and price. These are deliberate information-hierarchy signals, not decoration."
 
+### Interview Talking Points (Utility Classes)
+
+> **Spacing:** "I used Bootstrap spacing utilities instead of custom CSS for margins and padding. This keeps the implementation consistent with Bootstrap's spacing scale, reduces stylesheet complexity, and makes layout intent immediately visible in the markup."
+>
+> **Typography / Semantic vs. Visual:** "I use `<h1 class="h4">` to separate semantic meaning from visual size. The element is an H1 for document outline and accessibility, but renders at H4 size for visual proportion. This shows understanding of the distinction between semantic HTML and visual presentation."
+>
+> **Image:** "I used `img-fluid` so the image scales responsively within the Bootstrap grid while preserving its aspect ratio. I added `rounded` to soften the presentation without custom CSS. I avoided heavier styling like thumbnails or shadows because the image should remain the primary visual focus."
+>
+> **Color choices:** "`text-success` on the price draws the eye with green — the natural color for financial/positive signals. `text-muted` on the seller name communicates it's important but secondary to title and price. These are deliberate information-hierarchy signals, not decoration."
+
 ### Collapse Component (Toggle Pair)
 
 Used for progressive disclosure of long descriptions. The implementation uses a **pair of coordinated collapse regions** sharing the same `data-target` class.
