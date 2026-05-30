@@ -298,6 +298,20 @@ Trade-offs:
 
 A listing may have multiple categories (the API returns an array). Breadcrumbs work cleanly for one path but become awkward for 2+. Options: show only the primary (first) category as a breadcrumb, or stack multiple breadcrumb trails vertically. The Reverb website typically shows one primary breadcrumb trail — suggesting one "canonical" category per listing in practice.
 
+**Future Enhancement (Categories as Breadcrumbs):** Reverb's own website displays categories as hierarchical breadcrumbs (e.g., `Drums & Percussion › Snare Drums › Acoustic Snare Drums`) rather than flat badges. This better communicates the taxonomy depth and matches user mental models for navigation.
+
+Trade-offs:
+
+| Aspect | Badges (current) | Breadcrumbs |
+| --- | --- | --- |
+| Multiple categories | Shows all simultaneously | Can only display one path per line |
+| Hierarchy | Lost — flat list | Preserved — shows parent → child |
+| Information density | Compact | Takes more horizontal space |
+| Navigation affordance | None | Each crumb could link to a category listing |
+| Familiarity | Generic | Matches Reverb's own UX |
+
+A listing may have multiple categories (the API returns an array). Breadcrumbs work cleanly for one path but become awkward for 2+. Options: show only the primary (first) category as a breadcrumb, or stack multiple breadcrumb trails vertically. The Reverb website typically shows one primary breadcrumb trail — suggesting one "canonical" category per listing in practice.
+
 #### Specifications
 
 - Make
@@ -325,12 +339,15 @@ Long descriptions use progressive disclosure.
 
 Bootstrap is already included in the base template. We leverage it to avoid writing custom CSS for standard UI patterns — keeping the implementation focused on structure and logic rather than styling.
 
+Bootstrap is already included in the base template. We leverage it to avoid writing custom CSS for standard UI patterns — keeping the implementation focused on structure and logic rather than styling.
+
 ### Grid System
 
 ```text
 container → row → col-md-6
 ```
 
+Creates a two-column responsive layout (image | details) that stacks vertically on small screens. This is the standard product-page pattern.
 Creates a two-column responsive layout (image | details) that stacks vertically on small screens. This is the standard product-page pattern.
 
 ### Utility Classes
