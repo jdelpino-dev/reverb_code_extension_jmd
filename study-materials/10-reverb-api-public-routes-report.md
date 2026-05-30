@@ -950,6 +950,12 @@ A robust algorithm:
 }
 ```
 
+**Notable scalar fields:**
+
+- **`offers_enabled`** (boolean) — Indicates the seller has opted in to receiving negotiated price offers on this listing, not just fixed-price purchases. When `true`, the UI should surface a "Make an Offer" affordance (the corresponding action link is `_links.make_offer`). When `false`, the listing is buy-it-now only.
+- **`auction`** (boolean) — Whether the listing is an auction format (rare on Reverb; most listings are fixed-price or offer-enabled).
+- **`has_inventory`** / **`inventory`** — Whether inventory tracking is enabled and the current stock count. Most used gear is `inventory: 1` with `has_inventory: false` (one-of-a-kind item).
+
 ### 4.8 Nested Object: `shop`
 
 ```bash
