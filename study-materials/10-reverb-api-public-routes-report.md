@@ -1507,11 +1507,11 @@ Individual listing detail — returns significantly more data than the collectio
 ```bash
 curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
   "https://api.reverb.com/api/listings/64997892" | jq '. | length'
-# 47 keys (vs 26 in collection view)
+# 45-47 keys (vs 26-28 in collection view; exact count varies by listing due to conditional fields like sku/price_guide_id)
 
 curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
   "https://api.reverb.com/api/listings/all" | jq '.listings[0] | length'
-# 26 keys
+# 26-28 keys (conditional fields add to the base 26)
 ```
 
 **URL format:** The API accepts both the bare numeric ID and the full ID+slug form:
@@ -1572,18 +1572,26 @@ curl -s \
 - Clients should **not** rely on slug matching for identity comparisons — two different URL strings can refer to the same listing.
 - If building canonical URLs for caching or deduplication, always use `_links.self.href` from the response, not the request URL.
 
-**Fields shared with the collection view (26):**
+**Fields always present in the collection view (26):**
 
 `id`, `make`, `model`, `finish`, `year`, `title`, `created_at`, `shop_name`, `shop`, `description`, `condition`, `price`, `buyer_price`, `inventory`, `has_inventory`, `offers_enabled`, `categories`, `listing_currency`, `published_at`, `state`, `auction`, `shop_id`, `shipping`, `us_outlet`, `_links`, `photos`
 
-**21 additional fields only in the detail endpoint:**
+**Conditionally present in both endpoints** (appear only when the seller has set them):
+
+| Field | Type | Notes |
+| -- | -- | -- |
+| `sku` | string | Seller's external inventory reference — present when set |
+| `price_guide_id` | string | Reverb price guide reference — present when applicable |
+
+These fields appear in the collection view for some listings (confirmed in §4.6) but are absent for others. The detail endpoint also includes them conditionally. They are not counted in the "always present" 26 or the "detail-only" 19 below.
+
+**19 additional fields only in the detail endpoint:**
 
 | Field | Type | Category |
 | -- | -- | -- |
 | `accepted_payment_methods` | array | User-facing — how to pay |
 | `location` | object | User-facing — item origin |
 | `shipping_policy` | string | User-facing — shipping terms |
-| `payment_policy` | string | User-facing — payment terms |
 | `return_policy` | object | User-facing — refund conditions |
 | `videos` | array | User-facing — demo/media |
 | `stats` | object | User-facing — views, watchers (social proof) |
@@ -1600,11 +1608,16 @@ curl -s \
 | `upc_does_not_apply` | boolean | Internal — seller metadata |
 | `origin_country_code` | string | Internal — redundant with `location` |
 | `same_day_shipping_ineligible` | boolean | Internal — minor, covered by `shipping_policy` |
-| `comparison_shopping_page_id` | string | Internal — Reverb routing |
 
 **Photos:** Returns **all photos** (e.g., 3+) with multiple size variants, vs. only 1 photo in the collection view.
 
-**Key takeaway for the detail page:** of the 21 extra fields, ~11 are worth rendering (payment methods, location, policies, videos, stats, handmade, sold-as-is, local-pickup-only). The remaining ~10 are internal/admin/auth-dependent state.
+**Key takeaway for the detail page:** of the 19 detail-only fields, ~10 are worth rendering (payment methods, location, shipping/return policies, videos, stats, handmade, sold-as-is, local-pickup-only). The remaining ~9 are internal/admin/auth-dependent state.
+
+**Corrections (2026-05-30):**
+
+- `payment_policy` was previously listed in this table but does **not** exist in the actual API response for either the collection or detail endpoint. It is not a listing field (note: it does exist on the `/api/shops/{slug}` endpoint — see §5.14).
+- `comparison_shopping_page_id` was previously listed but was not observed in live API responses for either endpoint.
+- `sku` and `price_guide_id` were found to be conditionally present in **both** endpoints (not detail-only) — they appear only for listings where the seller has configured them (confirmed by §4.6 showing `sku` in the collection view).
 
 **Officially documented listing-write fields that read back in detail responses:**
 
@@ -1634,6 +1647,71 @@ curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
 ```
 
 **Key fields:** `id`, `name`, `description`, `address`, `avatar`, `banner`, `preferred_seller`, `quick_responder`, `quick_shipper`, `feedback_count`, `on_vacation`, `payment_methods`, `payment_policy`, `direct_checkout`, `_links`.
+
+#### `payment_policy` Lives on the Shop, Not the Listing
+
+**Finding (2026-05-30):** `payment_policy` is a **shop-level** field — it does not exist on any listing endpoint (neither collection nor detail). To display a seller's payment policy on a listing detail page, a client must make a separate request to `/api/shops/{slug}` using the slug from the listing's `_links.shop.href`.
+
+**Verified across 5 listings from different shops:**
+
+```bash
+# Step 1: Get shop slugs from listings
+for id in 97706305 97706313 97706322 97706329 97706292; do
+  curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+    "https://api.reverb.com/api/listings/$id" | jq '._links.shop.href, .shop_name'
+done
+
+# Step 2: Fetch payment_policy from each shop
+for slug in amd-around-music-distribution-gmbh justins-gear-locker-989 picks-shop upfrontguitars new-kings-roads-gear-bazaar; do
+  curl -s -H "Accept: application/hal+json" -H "Accept-Version: 3.0" \
+    "https://api.reverb.com/api/shops/$slug" | jq '.name, .payment_policy'
+done
+```
+
+**Results:**
+
+| Listing | Shop | Language | `payment_policy` |
+| -- | -- | -- | -- |
+| 97706305 | AMD - Around Music Distribution GmbH | German | *"Um über Preis, Versandkosten oder Zahlungsarten zu verhandeln, sende bitte eine Nachricht oder einen Preisvorschlag."* |
+| 97706313 | Justin Bishop Music | English | *"To negotiate price, shipping, or payment options, please send a message or make an offer."* |
+| 97706322 | Pick Music Bazar | Italian | *"Per contrattare sui prezzi, sulla spedizione o sulle opzioni di pagamento, invia un messaggio o fai un'offerta."* |
+| 97706329 | UpFront Guitars LLC | — | *(empty string)* |
+| 97706292 | New Kings Road Vintage Guitar Emporium | English | *"To negotiate price, shipping, or payment options, please send a message or make an offer."* |
+
+**Conclusions:**
+
+1. **Reverb provides a default template.** Three out of five shops use nearly identical boilerplate text — just translated into their local language. This suggests Reverb pre-fills this field with a localized default during shop setup.
+2. **Language follows seller locale, not the platform's.** The policy text is localized (German, Italian, English), reflecting the shop owner's region rather than a single platform language.
+3. **The field can be empty.** UpFront Guitars has a blank `payment_policy`, meaning it is optional — clients must handle `null`/empty gracefully (do not render a "Payment Policy" section if the value is empty).
+4. **`payment_policy` is always a shop-level fetch.** It is never available on the listing endpoint; you must resolve `_links.shop.href` first, then call the shop endpoint.
+
+**Consequences for client architecture:**
+
+- A listing detail page cannot display the seller's payment policy without an extra API call.
+- The shop slug is available in the listing response via `_links.shop.href` — so the data is reachable, but requires a second round-trip.
+- Unlike `shipping_policy` and `return_policy` (which are listing-level and vary per item), `payment_policy` is shop-wide and applies to all of a seller's listings identically.
+
+**Recommendations:**
+
+- If the detail page needs to show `payment_policy`, fetch it from `/api/shops/{slug}` and cache it — it is the same for every listing from that shop.
+- Consider batching: if rendering multiple listings from the same shop, one shop fetch covers all of them.
+- Guard against empty values — do not render an empty "Payment Policy" section.
+- Do not assume `payment_policy` will be added to the listing endpoint in the future — the domain model places it at the shop level intentionally (it is a seller-wide business rule, not a per-item attribute).
+
+**Localization problem:**
+
+The `payment_policy` text is stored in the **seller's language** — not the buyer's. A buyer browsing from the US will see German or Italian policy text with no translation mechanism available via the API. This is a significant UX gap:
+
+- The `Accept-Language` request header does **not** cause the API to translate seller-authored content. It may affect platform-generated labels/metadata, but free-text fields like `payment_policy` are returned verbatim as the seller entered them.
+- The same problem applies to `shipping_policy` and `return_policy` on the listing endpoint — these are also seller-authored free-text fields stored in the seller's locale.
+- Reverb's own web UI displays these untranslated (the buyer sees whatever language the seller wrote in). This confirms it is a platform-level limitation, not a client bug.
+
+**Client options for handling untranslated policy text:**
+
+1. **Display as-is** (what Reverb does) — accept that international marketplaces have multilingual content.
+2. **Detect language and offer client-side translation** — use a language detection library; if the detected language differs from the user's locale, offer a "Translate" button backed by a translation API.
+3. **Show a generic fallback label** — if the text is in a foreign language, display a standardized message like "This seller's payment policy is in [detected language]. Contact seller for details."
+4. **Omit entirely** — if the text is boilerplate (3/5 shops use the same Reverb-generated default), consider not rendering it at all, since it adds no unique information.
 
 ### 5.15 Summary Table
 
