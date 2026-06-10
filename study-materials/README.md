@@ -38,6 +38,8 @@ The interview format is: **Read code → Explain architecture → Implement feat
 | 13 | [13-ar-team-fit.md](13-ar-team-fit.md) | A&R product framing, Ruby/Rails talking points, non-traditional background, React fluency |
 | 14 | [14-ai-use-strategy.md](14-ai-use-strategy.md) | AI tooling allowed, Copilot usage patterns, narration strategy, opening statement |
 | 16 | [16-new-codebase-stack-guide.md](16-new-codebase-stack-guide.md) | App factory, Blueprints, httpx, Pico CSS v2, HTMX, uv, ruff, new test patterns |
+| 17 | [17-pico-css-audit.md](17-pico-css-audit.md) | Audit of how Pico is actually used in the codebase: correct, redundant, missing, mixed |
+| 18 | [18-pico-css-guide.md](18-pico-css-guide.md) | Pico v2 toolkit: semantic defaults, utility classes, custom properties, progressive disclosure patterns |
 
 ## Pre-Interview Checklist
 

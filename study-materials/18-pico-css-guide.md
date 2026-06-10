@@ -1,0 +1,535 @@
+# Chapter 18: Pico CSS v2 — Interview Reference Guide
+
+A focused field guide for the interview. What Pico styles for free, the small set
+of utility classes worth knowing, the patterns most likely to come up while
+extending this codebase, and how to handle interactive patterns Pico
+intentionally leaves to the platform.
+
+Read [Chapter 17](17-pico-css-audit.md) first for the audit of how Pico is
+*actually used* in the codebase. This chapter is the toolkit.
+
+---
+
+## Mental Model
+
+Pico v2 is a **semantic CSS framework**. It styles native HTML elements directly.
+Most of what you need is:
+
+1. Write semantic HTML
+2. Add one of ~5 utility classes when you need them
+3. Customize via `--pico-*` CSS custom properties
+4. Use HTML5 elements (`<details>`, `aria-*` attributes) for declarative
+   interactivity — no JavaScript framework
+
+Pico ships at ~10KB, has no JavaScript, and intentionally has no utility classes
+in the Tailwind/Bootstrap sense. If you find yourself reaching for `.mt-4`
+or `.col-md-6`, you're in the wrong framework.
+
+---
+
+## What Pico Styles For Free (Semantic Defaults)
+
+These are the elements you can drop into a template with no class and get
+sensible styles. Know this list cold — it's the foundation of every Pico answer.
+
+### Document structure
+
+| Element | Pico default |
+|---|---|
+| `<body>` | Sets base font, color, background from theme |
+| `<header>` `<main>` `<footer>` (inside `<body>`) | Vertical spacing as page sections |
+| `<article>` | **Card** — border, border-radius, padding, margin |
+| `<section>` | Vertical spacing only — no visual chrome |
+| `<aside>` | Sidebar styling; turns `<nav>` inside it into vertical stack |
+| `<hr>` | Themed horizontal rule |
+| `<blockquote>` | Indented quote with left border |
+| `<figure>` `<figcaption>` | Centered figure with muted caption |
+
+### Typography
+
+| Element | Pico default |
+|---|---|
+| `<h1>` … `<h6>` | Scaled headings using `--pico-h{n}-font-size` tokens |
+| `<p>` | Standard paragraph spacing |
+| `<small>` | 0.875em — useful for helper text under inputs |
+| `<mark>` | Highlight (uses theme color) |
+| `<code>` `<pre>` `<kbd>` | Monospace with subtle background |
+| `<abbr title="...">` | Dotted underline + tooltip on hover |
+| `<strong>` `<b>` `<em>` `<i>` | Bold / italic (use `<strong>`/`<em>` for semantics) |
+| `<a>` | Themed accent color, underline on hover |
+
+### Lists
+
+| Element | Pico default |
+|---|---|
+| `<ul>` `<ol>` `<li>` | Standard bullets/numbers with spacing |
+| `<ul>` inside `<nav>` | Horizontal inline list (no bullets) |
+| `<ul>` inside `<aside>` | Vertical stack |
+| `<dl>` `<dt>` `<dd>` | Definition list with indented descriptions |
+
+### Forms
+
+| Element | Pico default |
+|---|---|
+| `<input>` (text, email, etc.) | Full-width, themed, themed focus ring |
+| `<select>` | Styled with a chevron icon |
+| `<textarea>` | Resizable, themed |
+| `<button>` `<input type="submit">` | Primary button styling, full-width inside `<form>` |
+| `<input type="reset">` | Secondary style by default |
+| `<input type="checkbox">` `<input type="radio">` | Themed |
+| `<input type="checkbox" role="switch">` | Toggle switch |
+| `<input type="range">` | Themed slider |
+| `<input type="file">` | Themed file picker |
+| `<input type="color">` | Themed color swatch |
+| `<fieldset>` `<legend>` | Grouped form section with label |
+| `<label>` | Stacks naturally above its input |
+| `<progress>` | Themed progress bar |
+| `<small>` after an input | Muted helper text |
+
+### Tables
+
+| Element | Pico default |
+|---|---|
+| `<table>` | Full-width, themed borders |
+| `<thead>` `<tbody>` `<tfoot>` | Distinct header styling |
+| `<th>` `<td>` | Padded cells, left-aligned text |
+
+### Media
+
+| Element | Pico default |
+|---|---|
+| `<img>` `<video>` `<iframe>` | Responsive (`max-width: 100%`) |
+| `<picture>` | Behaves like `<img>` |
+
+### Interactive (declarative — no JS)
+
+| Element | Pico default |
+|---|---|
+| `<details>` `<summary>` | Native collapsible disclosure widget |
+| `<dialog>` | Modal styling (use `dialog.showModal()` in JS to open) |
+| `<details class="dropdown">` | Dropdown menu (still no JS — uses native `<details>`) |
+| `<button data-tooltip="...">` | Tooltip on hover |
+| `aria-busy="true"` | Loading spinner on the element |
+| `aria-invalid="true"` / `"false"` | Red / green validation state on inputs |
+
+---
+
+## The Utility Classes Worth Knowing
+
+Pico has very few utility classes. This is the full set you actually need:
+
+### Layout
+
+| Class | Effect |
+|---|---|
+| `.container` | Centered, max-width, responsive padding |
+| `.container-fluid` | Full-width, responsive padding |
+| `.grid` | Equal-width auto-layout columns (collapses to 1 col below 768px) |
+| `.overflow-auto` | Wraps a `<table>` for horizontal scroll on overflow |
+
+### Button / link variants (only with default `pico.min.css`, not classless)
+
+| Class | On `<button>` / `<a>` / `role="button"` |
+|---|---|
+| `.secondary` | Muted secondary button style |
+| `.contrast` | High-contrast button style |
+| `.outline` | Outlined variant — combine with `.secondary` / `.contrast` |
+
+### Grouping
+
+| Class | Effect |
+|---|---|
+| `role="group"` (on a `<div>` or `<fieldset>`) | Joins children edge-to-edge (button bars, input+button pairs) |
+
+### Nav links
+
+| Class | On `<a>` inside `<nav>` |
+|---|---|
+| `.secondary` | Muted nav link |
+| `.contrast` | High-contrast nav link |
+
+### Dropdown
+
+| Class | Effect |
+|---|---|
+| `.dropdown` (on `<details>`) | Turns it into a dropdown menu |
+| `role="button"` (on `<summary>`) | Renders the dropdown trigger as a button |
+| `dir="rtl"` (on the dropdown `<ul>`) | Aligns the menu to the right edge |
+
+**That is the full set.** No spacing utilities (`mt-*`, `p-*`), no display
+utilities (`d-flex`, `d-none`), no color utilities. If you need those, write
+them in `app.css` or override `--pico-*` tokens.
+
+---
+
+## Customization via CSS Custom Properties
+
+This is the Pico way to override anything. The `--pico-*` tokens are namespaced
+and theme-aware (they change with light/dark mode).
+
+### Most-used tokens
+
+| Token | Purpose |
+|---|---|
+| `--pico-spacing` | Default spacing unit (1rem) |
+| `--pico-border-radius` | Default border radius |
+| `--pico-border-width` | Default border width (1px) |
+| `--pico-muted-border-color` | Subtle border color (cards, inputs) |
+| `--pico-muted-color` | Muted text color |
+| `--pico-color` | Main text color |
+| `--pico-background-color` | Body background |
+| `--pico-card-background-color` | Card surface color |
+| `--pico-card-sectioning-background-color` | Card header/footer surface |
+| `--pico-primary` / `--pico-primary-hover` | Link / button accent |
+| `--pico-secondary` | Secondary button color |
+| `--pico-form-element-spacing-vertical` | Input padding (vertical) |
+| `--pico-form-element-spacing-horizontal` | Input padding (horizontal) |
+| `--pico-typography-spacing-vertical` | Spacing between `<p>`, `<ul>`, etc. |
+| `--pico-nav-element-spacing-vertical` | Nav item vertical spacing |
+| `--pico-nav-element-spacing-horizontal` | Nav item horizontal spacing |
+
+### Two scopes for overrides
+
+```css
+/* Global — applies everywhere */
+:root {
+  --pico-primary: hsl(280 80% 50%);
+  --pico-border-radius: 0.25rem;
+}
+
+/* Scoped — only this element and its children */
+.dashboard-card {
+  --pico-card-background-color: hsl(220 20% 95%);
+}
+```
+
+Scoped overrides are almost always better than global ones. They keep changes
+local and avoid the cascade problems described in [Chapter 17](17-pico-css-audit.md).
+
+---
+
+## Patterns Likely To Come Up Extending This Codebase
+
+The interview scenarios involve adding features to the existing pages. These are
+the Pico patterns you would most likely reach for.
+
+### A real button instead of `<input type="submit">`
+
+```html
+<!-- Current in categories/index.html -->
+<input type="submit" value="Search">
+
+<!-- Replacement — same look, can hold icons/loading state -->
+<button type="submit">Search</button>
+```
+
+### Helper text below an input (e.g. for pagination, "showing X of Y")
+
+```html
+<input type="text" name="search" placeholder="Search...">
+<small>Showing {{ results|length }} of {{ total }} results</small>
+```
+
+### Loading state on a button (for slow API calls)
+
+```html
+<!-- Submit button while waiting for the Reverb API -->
+<button type="submit" aria-busy="true">Searching…</button>
+
+<!-- Icon-only spinner -->
+<button aria-busy="true" aria-label="Please wait..."></button>
+```
+
+### Input validation state (for empty search, invalid filter)
+
+```html
+<input
+  type="text"
+  name="price_min"
+  aria-invalid="true"
+  aria-describedby="price-error">
+<small id="price-error">Minimum price must be a number</small>
+```
+
+### Card with header and footer (for a richer listing card)
+
+```html
+<article>
+  <header>
+    <strong>Fender Stratocaster</strong>
+  </header>
+  <img src="..." alt="...">
+  <p>Mint condition, all original parts.</p>
+  <footer>
+    <a href="#" role="button">View details</a>
+  </footer>
+</article>
+```
+
+### Group: input + button pair (search form on one line)
+
+```html
+<form>
+  <fieldset role="group">
+    <input type="text" name="search" placeholder="Search...">
+    <input type="submit" value="Search">
+  </fieldset>
+</form>
+```
+
+`role="group"` joins them edge-to-edge with no gap and a shared border radius.
+
+### Breadcrumb nav
+
+```html
+<nav aria-label="breadcrumb">
+  <ul>
+    <li><a href="{{ url_for('categories.index') }}">Home</a></li>
+    <li><a href="{{ url_for('categories.index') }}">Categories</a></li>
+    <li>Guitars</li>
+  </ul>
+</nav>
+```
+
+The `aria-label="breadcrumb"` triggers Pico's breadcrumb styling with `>`
+dividers automatically.
+
+### Loading skeleton on a card (during HTMX swap)
+
+```html
+<article aria-busy="true">
+  <!-- Pico renders a spinner; content can be empty during load -->
+</article>
+```
+
+### Tooltip on a small UI hint
+
+```html
+<button data-tooltip="Save this search" data-placement="bottom">★</button>
+```
+
+### Modal (for confirmation dialogs, gear details overlay)
+
+```html
+<dialog id="confirm-dialog">
+  <article>
+    <header>
+      <strong>Remove from favorites?</strong>
+    </header>
+    <p>This will remove the listing from your saved gear.</p>
+    <footer>
+      <button class="secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button>Remove</button>
+    </footer>
+  </article>
+</dialog>
+
+<script>
+  document.getElementById('open-btn').addEventListener('click', () => {
+    document.getElementById('confirm-dialog').showModal();
+  });
+</script>
+```
+
+`<dialog>` is a native HTML element. Pico styles it, but you still need
+`dialog.showModal()` / `dialog.close()` in JS to open/close. The HTML and styling
+are declarative; the trigger is not.
+
+---
+
+## Progressive Disclosure: Bootstrap Collapse vs Pico
+
+This is a common interview topic because the patterns differ in philosophy.
+
+### Bootstrap's approach (the "collapse toggle pair")
+
+Bootstrap requires a trigger + target pair with `data-bs-toggle`/`data-bs-target`
+attributes and a JS controller to wire them up:
+
+```html
+<button class="btn"
+        data-bs-toggle="collapse"
+        data-bs-target="#filters">
+  Show filters
+</button>
+
+<div class="collapse" id="filters">
+  ...filter controls...
+</div>
+```
+
+Requires `bootstrap.bundle.js`. The JS reads the data attributes, finds the
+target, manages `aria-expanded`, animates the collapse, and toggles the class.
+
+### Pico's approach: native `<details>` / `<summary>`
+
+Pico delegates to the **browser's built-in disclosure widget**. No JS, no data
+attributes, no controller. The trigger and target are *the same element*:
+
+```html
+<details>
+  <summary>Show filters</summary>
+  <!-- Content lives inside <details>, hidden until summary is clicked -->
+  <fieldset>
+    <label>
+      <input type="checkbox" name="condition" value="mint">
+      Mint condition
+    </label>
+    <label>
+      <input type="checkbox" name="condition" value="used">
+      Used
+    </label>
+  </fieldset>
+</details>
+```
+
+That is the entire pattern. The browser handles open/close, keyboard navigation
+(Enter / Space), and `aria-expanded` automatically.
+
+### Side-by-side comparison
+
+| | Bootstrap Collapse | Pico `<details>` |
+|---|---|---|
+| HTML structure | Trigger + separate target | Single `<details>` wrapping both |
+| JS required | Yes (`bootstrap.bundle.js`) | No |
+| ARIA management | JS-managed | Native browser |
+| Keyboard support | JS-managed | Native browser |
+| Animation | CSS height transition (JS-driven) | Native (browser-dependent; usually instant) |
+| Multiple targets per trigger | Yes (selector list) | No (1:1) |
+| Trigger anywhere on the page | Yes | No — `<summary>` must be the first child of `<details>` |
+| Persistence on refresh | No (without JS) | `open` attribute persists if server-rendered |
+
+### When Pico's `<details>` is sufficient
+
+- Filter panels
+- "Show more" descriptions
+- Optional form fields
+- FAQ-style sections
+- Sidebar menu groups
+
+### When you actually need a Bootstrap-style collapse
+
+- The trigger needs to live elsewhere on the page (e.g., a top-bar button
+  opening a sidebar)
+- You need to toggle multiple unrelated regions from one button
+- You need custom animation tied to the toggle
+
+### Accordion variant (only one section open at a time)
+
+Pico supports this declaratively with the HTML `name` attribute on `<details>`:
+
+```html
+<details name="filters" open>
+  <summary>Category</summary>
+  <!-- options -->
+</details>
+
+<details name="filters">
+  <summary>Price range</summary>
+  <!-- options -->
+</details>
+
+<details name="filters">
+  <summary>Condition</summary>
+  <!-- options -->
+</details>
+```
+
+When `<details>` elements share the same `name`, opening one automatically
+closes the others. This is a **native HTML5 feature**, not a Pico feature —
+Pico just styles it correctly.
+
+### Dropdown menu (true menu, not just disclosure)
+
+Pico extends `<details>` with `.dropdown` for menu-style behavior:
+
+```html
+<details class="dropdown">
+  <summary>Sort by</summary>
+  <ul>
+    <li><a href="?sort=price_asc">Price: low to high</a></li>
+    <li><a href="?sort=price_desc">Price: high to low</a></li>
+    <li><a href="?sort=newest">Newest first</a></li>
+  </ul>
+</details>
+```
+
+Place inside a `<nav>` for a top-bar dropdown menu. Still no JS. Click outside
+to close requires browser native behavior — note that `<details>` does *not*
+auto-close when you click outside it; for true menu UX you may want a small
+JS snippet or progressive enhancement.
+
+### Combining with HTMX (for server-driven progressive disclosure)
+
+```html
+<details>
+  <summary>Show recent searches</summary>
+  <!-- Loaded only when opened -->
+  <div hx-get="/searches/recent"
+       hx-trigger="toggle from:closest details once"
+       hx-swap="innerHTML">
+    Loading…
+  </div>
+</details>
+```
+
+The content fetches lazily on first open. This is the pattern that matches the
+new codebase's HTMX-ready setup.
+
+---
+
+## Improvements Worth Mentioning In The Interview
+
+A short list of Pico-aware suggestions you can make if asked "what would you
+improve about the UI?":
+
+1. **Switch `<input type="submit">` to `<button type="submit">`** — same Pico
+   style, but supports icons, loading state (`aria-busy`), and child elements.
+2. **Add `aria-busy="true"` during HTMX requests** — Pico renders a spinner for
+   free, perfect for the search form or listing reloads.
+3. **Use `role="group"` for the search input + button pair** — joined visual
+   treatment that signals they are one control.
+4. **Add `<small>` helper text** under the search input — e.g., "Press Enter or
+   click Search". Free Pico styling.
+5. **Replace future "show filters" toggles with `<details>`** — no JS, native
+   accessibility, server-renderable open/closed state via the `open` attribute.
+6. **Use `aria-invalid` for empty-search or invalid-input state** — visual
+   feedback with zero CSS.
+7. **Scope the `h1` gradient to a class** (e.g., `.brand-heading`) instead of
+   targeting `h1` globally — see [Chapter 17](17-pico-css-audit.md).
+8. **Use `--pico-spacing` instead of hardcoded `1rem`** in `app.css` where
+   spacing should follow the theme.
+
+These are all **small, reversible changes** that demonstrate Pico fluency
+without rewriting the app.
+
+---
+
+## Cheat Sheet (For The Interview)
+
+```text
+LAYOUT
+.container             centered max-width
+.container-fluid       full-width
+.grid                  equal columns (form / quick column groups)
+custom CSS Grid        for responsive card lists (use auto-fill + minmax)
+
+VARIANTS (button, link, summary[role=button])
+.secondary  .contrast  .outline
+
+DISCLOSURE / MENUS (declarative, no JS)
+<details><summary>...</summary>...</details>     simple toggle
+<details name="x">...                            accordion (one open at a time)
+<details class="dropdown">                       dropdown menu
+
+STATE (attributes, no class)
+aria-busy="true"                                 loading spinner
+aria-invalid="true" / "false"                    validation
+data-tooltip="..."                               tooltip
+data-theme="light" | "dark"                      force theme (omit = auto)
+role="group"                                     joined input/button bar
+
+OVERRIDE
+:root { --pico-primary: ... }                    global token override
+.my-card { --pico-card-background-color: ... }   scoped token override
+```
