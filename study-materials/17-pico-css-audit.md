@@ -385,6 +385,146 @@ Pico's breakpoints — `576px` or `768px` — by convention.
 
 ---
 
+## Best Practice Fixes
+
+### Gradient `h1`: scope it, drop the webkit property
+
+The core problem is a global element selector with side effects. The fix is a
+scoped class and standard CSS only:
+
+```css
+/* Before — global, non-standard, side-effects */
+h1 {
+  background: linear-gradient(...);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent; /* non-standard */
+  background-clip: text;
+  font-weight: 700;                     /* duplicates Pico */
+  display: inline-block;                /* changes all h1 layout */
+}
+
+/* After — scoped, standard, no side effects */
+.gradient-heading {
+  background: linear-gradient(...);
+  background-clip: text;
+  color: transparent;                   /* standard property, not -webkit-text-fill-color */
+  display: inline;                      /* inline wraps tightly without block side effects */
+}
+```
+
+Apply it in templates where the gradient is actually wanted:
+
+```jinja2
+<h1><span class="gradient-heading">Category Search</span></h1>
+```
+
+Wrapping in `<span>` keeps `<h1>` as a block element; only the text node becomes
+inline. `color: transparent` with `background-clip: text` is the standardised
+approach — `-webkit-text-fill-color` overrides `color` in WebKit but is not in
+the CSS spec and has no non-WebKit fallback path.
+
+`font-weight: 700` can be dropped entirely — Pico already sets it on all headings
+via `--pico-font-weight` on the `h1,h2,h3,...` rule.
+
+### `nav a` color: tighten the selector
+
+```css
+/* Before — blankets all nav links */
+nav a {
+  color: var(--pico-color);
+  font-size: 0.875rem;
+}
+
+/* After — only the logo anchor, leaving content links their Pico accent colour */
+.nav-logo-link {
+  color: var(--pico-color);
+  font-size: 0.875rem;
+}
+```
+
+The `.nav-logo-link` class is already in the codebase and already scopes the
+logo anchor. There is no reason for the broader `nav a` rule. If the intent is
+also to neutralise the colour on the right-hand nav links specifically, use:
+
+```css
+nav ul:last-child a {
+  color: var(--pico-color);
+  font-size: 0.875rem;
+}
+```
+
+This targets only the second `<ul>` inside `<nav>` — the content links — without
+affecting any other nav in the document.
+
+### Card `border-radius`: just remove it
+
+```css
+/* Before */
+.category-card,
+.listing-card {
+  border: 1px solid var(--pico-muted-border-color); /* keep — load-bearing */
+  border-radius: var(--pico-border-radius);          /* remove — <article> already has this */
+}
+
+/* After */
+.category-card,
+.listing-card {
+  border: 1px solid var(--pico-muted-border-color);
+}
+```
+
+Nothing changes visually. The rule was duplicating what Pico already applies to
+every `<article>`.
+
+### Card padding: override the Pico custom property instead of hardcoding
+
+Pico applies padding to `<article>` via `--pico-block-spacing-vertical` and
+`--pico-block-spacing-horizontal` (both default to `--pico-spacing`, which is
+`1rem`). Overriding the property keeps the change inside Pico's token system:
+
+```css
+/* Before — hardcoded raw value, bypasses Pico's token system */
+.category-card {
+  padding: 1rem;
+}
+
+/* After — override the token; Pico's <article> rule picks it up automatically */
+.category-card {
+  --pico-block-spacing-vertical: 0.75rem;
+  --pico-block-spacing-horizontal: 0.75rem;
+}
+```
+
+If the intent is just to use the default `1rem`, remove the rule entirely — Pico
+already produces that value.
+
+### Media query: align to a Pico breakpoint
+
+```css
+/* Before — sits between Pico's xs (576px) and sm (768px) */
+@media (min-width: 600px) {
+  .categories-list,
+  .listings-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* After — aligns to Pico's sm breakpoint */
+@media (min-width: 768px) {
+  .categories-list,
+  .listings-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+```
+
+`768px` is the better choice here because `600px` is narrower than most tablets
+in landscape, so the three-column layout was activating on larger phones. `768px`
+(Pico's `sm`) is the conventional tablet breakpoint and keeps the grid consistent
+with how Pico's own `.container` expands.
+
+---
+
 ## Summary Table
 
 | Item | Verdict | Impact |

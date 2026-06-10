@@ -282,11 +282,30 @@ boundaries between `categories` and `listings` — has been resolved by **removi
 the service layer entirely**. Both routes call the client directly. This is
 simpler for the current scope but reintroduces the same critique under a different
 name: if pagination, caching, or business rules get added, there is no service
-seam to extend. The interview script becomes:
+seam to extend.
+
+**A second consequence: data-shaping collapses too.** A service layer is also
+where you would normalize raw API dicts into something the template can consume
+cleanly. Without it, two things happen:
+
+- **Routes grow inline logic.** The categories route already does filtering via
+  list comprehension inline. Add sorting or field normalization and the route
+  becomes a data-manipulation function, not a thin HTTP handler.
+- **Templates navigate raw API structure.** The listings template accesses
+  `listing["photos"][0]["_links"]["thumbnail"]["href"]` directly. That path
+  reflects Reverb's internal JSON shape, not a clean view model. A missing photo
+  key crashes the template. A service layer (or even a small helper function)
+  would resolve the photo URL once, return `None` on failure, and hand the
+  template a flat dict it can render safely.
+
+The interview script becomes:
 
 > "The service layer is collapsed in this version, which is fine for the current
-> scope. If I were adding pagination or caching, I'd extract a `services/`
-> module to keep routes thin and the logic testable in isolation."
+> scope. But collapsing it also collapses the data-shaping layer — the template
+> is navigating raw API structure directly, which makes it fragile. If I were
+> extending this, I'd extract a `services/` module that normalizes each listing
+> into a flat dict before passing it to the template. That keeps routes thin,
+> templates simple, and the API structure isolated to one place."
 
 See [Chapter 16 § Collapsed Service Layer](16-new-codebase-stack-guide.md) for
 the full discussion.
