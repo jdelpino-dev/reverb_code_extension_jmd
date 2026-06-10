@@ -349,3 +349,106 @@ def create_app():
 > "Flask doesn't give you Rails' file structure for free, but Blueprints achieve
 > the same organization. Each Blueprint is a mini-app with its own routes,
 > templates, and static files."
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The new codebase uses the **application factory + Blueprint** pattern that the
+last section of this chapter describes. Most patterns above still apply — but
+there are concrete differences to know cold.
+
+### Factory pattern in practice
+
+```python
+# app/__init__.py
+from dotenv import load_dotenv
+from flask import Flask
+
+load_dotenv()
+
+def create_app():
+    app = Flask(__name__)
+
+    from app.routes.categories import categories_bp
+    from app.routes.listings import listings_bp
+
+    app.register_blueprint(categories_bp)
+    app.register_blueprint(listings_bp)
+
+    return app
+```
+
+Key reasons this matters:
+
+- **Testability** — `conftest.py` calls `create_app()`, so each test gets a fresh,
+  isolated app instance. No shared module-level state.
+- **No circular imports** — Blueprint imports happen *inside* the factory, after
+  `app` exists. The pattern `from app import app` (which causes circular imports
+  in the old codebase if you split files) is avoided.
+- **Run with**: `uv run flask --app app run --debug`. The `--app app` arg tells
+  Flask to import `app` and call `create_app()`.
+
+### Blueprint route definitions
+
+```python
+# app/routes/categories.py
+from flask import Blueprint, render_template, request
+from app.clients import reverb
+
+categories_bp = Blueprint("categories", __name__)
+
+@categories_bp.route("/")
+@categories_bp.route("/categories")
+def index():
+    search_term = request.args.get("search", "").strip()
+    ...
+    return render_template("categories/index.html", ...)
+```
+
+The `@app.route` decorator becomes `@categories_bp.route` — the route is
+registered on the Blueprint, not the app directly.
+
+### `url_for` rules (critical for templates)
+
+```jinja2
+{# Old codebase #}
+{{ url_for('categories') }}
+
+{# New codebase — must include the Blueprint name as a prefix #}
+{{ url_for('categories.index') }}
+{{ url_for('listings.index') }}
+```
+
+Forgetting the prefix raises `werkzeug.routing.BuildError` at template render
+time. The error message names the missing endpoint, which makes the fix obvious.
+
+### Query param naming change
+
+The search input was renamed from `query` to `search`:
+
+```python
+# Old
+request.args.get('query')
+
+# New
+request.args.get('search', '').strip()
+```
+
+The new code also strips whitespace and defaults to empty string — small
+robustness improvements worth replicating in any new routes you add.
+
+### Python 3.12, not 3.8
+
+The new codebase targets Python 3.12 (`requires-python = ">=3.12"`). The
+"Python 3.8 constraints" section above no longer applies. You can use:
+
+- `dict | dict` merge syntax
+- `list[int]` annotations without `from typing import`
+- `match` / `case` statements
+- `str.removeprefix()` / `str.removesuffix()`
+- Modern `typing` features like `Self`, `ParamSpec`
+
+See [Chapter 16](16-new-codebase-stack-guide.md) for the full stack reference
+and [Chapter 19](19-data-attributes-and-dataset.md) for the front-end
+enhancement patterns the new templates support.

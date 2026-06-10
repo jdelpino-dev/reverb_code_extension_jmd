@@ -245,3 +245,143 @@ The route decides what the user sees.
 > The service decides: recover silently, return `None`, or escalate.
 > The route owns user-facing communication: flash messages, error pages, status codes.
 > The client's job is to make HTTP errors visible by calling `raise_for_status()`.
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The four-path failure taxonomy is unchanged. The **exception types and the
+place where errors get caught** are different because the new codebase uses
+`httpx` and has no service layer.
+
+### Updated exception map for `httpx`
+
+| Failure path | Old (`requests`) | New (`httpx`) |
+|---|---|---|
+| Transport failure | `requests.exceptions.RequestException` | `httpx.RequestError` (base for network errors) |
+| HTTP 4xx/5xx | `requests.exceptions.HTTPError` | `httpx.HTTPStatusError` |
+| Invalid JSON body | `ValueError` / `json.JSONDecodeError` | Same — `.json()` raises `json.JSONDecodeError` (subclass of `ValueError`) |
+| Unexpected JSON shape | `KeyError` from key access | Same |
+| Connect timeout | `requests.exceptions.ConnectTimeout` | `httpx.ConnectTimeout` |
+| Read timeout | `requests.exceptions.ReadTimeout` | `httpx.ReadTimeout` |
+| Base class for *all* httpx errors | N/A | `httpx.HTTPError` (catches everything httpx raises) |
+
+`raise_for_status()` is **already called by the client** in this codebase —
+you inherit that. What you choose to do with `httpx.HTTPStatusError` is the
+open question.
+
+### Where to catch (without a service layer)
+
+The original chapter says: "the service layer catches network/HTTP errors,
+the route owns user-facing communication." The new codebase **has no service
+layer**, so both responsibilities collapse into the route — unless you add
+one.
+
+**Option A: catch in the route directly** (smallest diff)
+
+```python
+# app/routes/categories.py
+import httpx
+from flask import flash
+
+@categories_bp.route("/categories")
+def index():
+    search_term = request.args.get("search", "").strip()
+    try:
+        all_categories = reverb.categories()
+    except httpx.HTTPError:
+        flash("Could not load categories. Please try again shortly.", "error")
+        all_categories = []
+
+    matched = [c for c in all_categories if search_term.lower() in (c.get("full_name") or "").lower()]
+    return render_template("categories/index.html", categories=matched, search_term=search_term)
+```
+
+Uses `httpx.HTTPError` as the catch-all because it's the base class for both
+`RequestError` (transport) and `HTTPStatusError` (4xx/5xx).
+
+**Option B: introduce a service layer** (cleaner if multiple routes need it)
+
+```python
+# app/services/categories.py
+import httpx, logging
+from app.clients import reverb
+
+log = logging.getLogger(__name__)
+
+def all_categories():
+    """Returns ([], error_message) instead of raising."""
+    try:
+        return reverb.categories(), None
+    except httpx.HTTPStatusError as e:
+        log.warning("Reverb returned %s for categories", e.response.status_code)
+        return [], "Categories temporarily unavailable."
+    except httpx.RequestError:
+        log.exception("Network error fetching categories")
+        return [], "Could not connect to Reverb. Try again shortly."
+```
+
+The route stays one line shorter and the error-handling discipline becomes
+shared across any future routes that need categories.
+
+### Layered split with the new stack
+
+```text
+ Client (httpx)        Service (optional)        Route
+ -----------------     ---------------------     ----------------------------
+ raise_for_status()    catch HTTPStatusError     decide flash() vs abort()
+                       catch RequestError        choose status code if needed
+                       log details                render template
+                       normalize return value
+```
+
+The rule is the same: **the client makes errors visible by raising; somebody
+else decides what to do about it.** In the absence of a service layer, that
+"somebody" is the route.
+
+### Empty-state vs error-state in the new templates
+
+The new `categories/index.html` already distinguishes "no search yet" from
+"search returned nothing":
+
+```jinja2
+{% if search_term %}
+  {% if categories %}
+    ...results...
+  {% else %}
+    <div class="empty-state">No categories found matching "{{ search_term }}"</div>
+  {% endif %}
+{% endif %}
+```
+
+If you add error handling, add a **third state** for it via `flash()` (which
+`layout.html` would need to render via `get_flashed_messages()`) rather than
+overloading the empty state. Mixing "no results" with "upstream error" is a
+UX bug worth calling out.
+
+### Updated client-test pattern for error cases
+
+With `httpx`, simulating an error response is done by setting up a mock
+`Response` that raises on `raise_for_status()`:
+
+```python
+from unittest.mock import MagicMock, patch
+import httpx
+
+def make_error_response(status_code):
+    mock = MagicMock(spec=httpx.Response)
+    mock.status_code = status_code
+    mock.raise_for_status.side_effect = httpx.HTTPStatusError(
+        f"HTTP {status_code}", request=MagicMock(), response=mock
+    )
+    return mock
+
+def test_categories_raises_on_5xx():
+    with patch("httpx.get", return_value=make_error_response(503)):
+        with pytest.raises(httpx.HTTPStatusError):
+            reverb.categories()
+```
+
+See Chapter [16](16-new-codebase-stack-guide.md) for the full stack reference
+and Chapter [11 Addendum](11-reverb-client-improvements-report.md) for the
+client-side improvements that complement error handling.

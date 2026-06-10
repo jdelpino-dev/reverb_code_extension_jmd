@@ -242,3 +242,51 @@ pipenv run pytest -vs tests/test_listings.py
 # Run single test
 pipenv run pytest -vs tests/test_categories.py::test_displays_full_name_of_matching_categories
 ```
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The interview now uses a refreshed, AI-generated codebase at
+`tmp/reverb-hiring-code-python`. The **layered architecture above still
+applies** — but the boundaries are drawn differently. See
+[Chapter 16](16-new-codebase-stack-guide.md) for the full guide.
+
+### Architecture diff vs the original
+
+| Layer | Old codebase | New codebase |
+|---|---|---|
+| Entry point | `app.py` (module-level `app = Flask(__name__)`) | `app/__init__.py` with `create_app()` factory |
+| Routes | All in `app.py` | `app/routes/categories.py` + `app/routes/listings.py` as **Blueprints** |
+| Service helpers | `_load_categories()`, `_search_categories()` in `app.py` | **Collapsed** — routes call the client directly |
+| Client | `reverb_client.py` — `ReverbClient` class | `app/clients/reverb.py` — module-level functions, uses `httpx`, calls `raise_for_status()` |
+| Templates | `templates/categories.html`, `listings.html` | `templates/categories/index.html`, `listings/index.html`, `partials/navigation.html` |
+
+### New request flow — GET /categories?search=guitar
+
+```text
+1. Flask matches the URL against the categories Blueprint
+2. categories.index() reads request.args.get("search", "").strip()
+3. Route calls reverb.categories() DIRECTLY — no service helper
+4. Filtering happens inline in the route via list comprehension
+5. Filtered list passed to render_template("categories/index.html", ...)
+6. layout.html renders, includes partials/navigation.html, fills the content block
+```
+
+Note the query param name changed: **`query` → `search`**.
+
+### The service layer is now "intentionally collapsed"
+
+The original codebase's main architectural critique — inconsistent service
+boundaries between `categories` and `listings` — has been resolved by **removing
+the service layer entirely**. Both routes call the client directly. This is
+simpler for the current scope but reintroduces the same critique under a different
+name: if pagination, caching, or business rules get added, there is no service
+seam to extend. The interview script becomes:
+
+> "The service layer is collapsed in this version, which is fine for the current
+> scope. If I were adding pagination or caching, I'd extract a `services/`
+> module to keep routes thin and the logic testable in isolation."
+
+See [Chapter 16 § Collapsed Service Layer](16-new-codebase-stack-guide.md) for
+the full discussion.

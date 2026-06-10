@@ -254,3 +254,159 @@ AttributeError: 'NoneType' object has no attribute 'text'
 | Pagination | Return type changed but tests use old shape | Print client response |
 | Error handling | Exception not caught (wrong exception class) | Print exception type in except |
 | Sort | `float()` on missing price | Print listing dict before sort |
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The systematic framework (REPRODUCE → ISOLATE → FIX → VERIFY) is unchanged.
+The **specific bugs you're likely to hit** are different because the stack is
+different.
+
+### New common bug patterns
+
+#### 1. `url_for` BuildError after adding a Blueprint route
+
+**Symptom:** `werkzeug.routing.BuildError: Could not build url for endpoint 'index'`
+
+**Cause:** Forgot the Blueprint prefix in `url_for`. With Blueprints, every
+endpoint name is `blueprint_name.function_name`.
+
+```jinja2
+{# Wrong #}
+{{ url_for('index') }}
+
+{# Right #}
+{{ url_for('categories.index') }}
+```
+
+#### 2. `KeyError: 'REVERB_HOST'` in tests
+
+**Symptom:** Client tests fail with `KeyError: 'REVERB_HOST'` when calling
+`os.environ["REVERB_HOST"]`.
+
+**Cause:** The env var isn't set in the test environment. The repo's
+`tests/clients/test_reverb.py` uses an `autouse` monkeypatch fixture:
+
+```python
+@pytest.fixture(autouse=True)
+def set_reverb_host(monkeypatch):
+    monkeypatch.setenv("REVERB_HOST", "https://api.reverb.test")
+```
+
+If your new test file is in a different directory or doesn't pick up this
+fixture, define it again.
+
+#### 3. `AttributeError: Mock object has no attribute 'raise_for_status'`
+
+**Symptom:** Mocking `httpx.get` works for `.json()` but blows up on
+`.raise_for_status()`.
+
+**Cause:** `MagicMock` auto-creates attributes on access, but the test pattern
+in this codebase uses a manual `MagicMock` where you must stub it explicitly.
+
+**Fix:**
+
+```python
+def make_mock_response(data):
+    mock = MagicMock()
+    mock.json.return_value = data
+    mock.raise_for_status.return_value = None    # ← stub it as a no-op
+    return mock
+```
+
+#### 4. Test passes but feature broken — patching the wrong path
+
+**Symptom:** Mock has no effect, real `httpx` call is attempted (or unexpected
+behavior).
+
+**Cause:** With Blueprints, the patch path is **where the route imports the
+client**, not where `httpx` lives.
+
+```python
+# Wrong for a route-level test
+with patch("app.clients.reverb.categories", return_value=[...]):
+
+# Right — patch where the route imports it
+with patch("app.routes.categories.reverb.categories", return_value=[...]):
+```
+
+The rule "patch where it's USED, not where it's DEFINED" still holds.
+
+#### 5. Template renders but byte-assertion fails
+
+**Symptom:** `assert b'class="category-card"' in response.data` fails even
+though the page looks right in the browser.
+
+**Cause:** You renamed the CSS class on the template (e.g., from `category-card`
+to `cat-card`). The tests assert on **exact class name strings**.
+
+**Fix:** Either revert the rename, or update the test assertion. Class names in
+this codebase are test-coupled — a feature, not a bug.
+
+#### 6. `BuildError` after splitting routes into a new Blueprint
+
+**Symptom:** All `url_for` calls suddenly break when you add a new Blueprint.
+
+**Cause:** Forgot to call `app.register_blueprint(my_bp)` inside `create_app()`.
+Flask only knows about endpoints that are registered.
+
+**Fix:** Add the import and register call:
+
+```python
+# app/__init__.py
+from app.routes.my_new_thing import my_new_bp
+app.register_blueprint(my_new_bp)
+```
+
+#### 7. `httpx.HTTPStatusError` leaks out of the route
+
+**Symptom:** A 5xx from the Reverb API surfaces as a 500 with `httpx`'s
+stack trace.
+
+**Cause:** The client calls `raise_for_status()` (good) but no one catches the
+resulting `httpx.HTTPStatusError` in the route (gap).
+
+**Fix:** Catch at the route boundary (or in the service layer if you've added
+one):
+
+```python
+try:
+    cats = reverb.categories()
+except httpx.HTTPStatusError:
+    flash("Could not load categories. Try again shortly.", "error")
+    cats = []
+```
+
+See Chapter 12 for the full error-handling discipline.
+
+#### 8. HTMX swap doesn't trigger event listeners on new content
+
+**Symptom:** Your vanilla JS enhancement (label swap, dropdown click-outside)
+works on initial page load but stops working after an HTMX swap.
+
+**Cause:** The enhancer only ran once at page load. New DOM injected by HTMX
+was never enhanced.
+
+**Fix:** Re-run the enhancer scoped to the swapped fragment:
+
+```javascript
+document.body.addEventListener("htmx:afterSwap", (e) => {
+  enhanceDescriptionDisclosures(e.detail.target);
+});
+```
+
+See [Chapter 19](19-data-attributes-and-dataset.md) for the pattern.
+
+### Print-statement targets in the new codebase
+
+| Layer | What to print |
+|---|---|
+| Route | `print(request.args, file=sys.stderr)` to see incoming params |
+| Route | `print(repr(matched_categories), file=sys.stderr)` after filtering |
+| Client | `print(response.status_code, response.text[:200], file=sys.stderr)` after `httpx.get` |
+| Test (with `-s` flag) | `print(response.data.decode()[:500])` to inspect rendered HTML |
+
+`uv run pytest -s` enables print output. Add `-x` to stop on first failure.
+
+See Chapter [16](16-new-codebase-stack-guide.md) for the full stack reference.

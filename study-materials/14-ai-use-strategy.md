@@ -198,3 +198,76 @@ The interview is **not** "can you avoid AI?" It is:
 
 **Be transparent. Be natural. Let AI accelerate your strengths — not mask
 your weaknesses.**
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The AI strategy above is unchanged. What changes is the **specific patterns
+where Copilot tends to help vs hurt** with the new stack.
+
+### Where Copilot helps with the new codebase
+
+| Task | Why Copilot is good at it |
+|---|---|
+| Blueprint boilerplate | The pattern is highly stereotyped — `Blueprint("name", __name__)`, `@bp.route`, `render_template` |
+| Mock setup for route tests | `with patch("app.routes.X.reverb.Y", return_value=...)` follows a clean shape Copilot reproduces well |
+| `httpx` calls | API is nearly identical to `requests` — Copilot fills in `raise_for_status()` and `response.json()` correctly |
+| Jinja2 template loops over the API shape | Once you've shown it `category["full_name"]` once, it predicts `listing["title"]` etc. correctly |
+| Pico-style markup | `<article>`, `<nav><ul>`, `aria-busy` patterns are well represented in its training |
+| `data-*` attribute enhancement scaffolding | The `dataset.labelOpen` pattern is common enough that Copilot writes the toggle handler quickly |
+
+### Where Copilot tends to be wrong with the new codebase
+
+| Trap | What Copilot suggests | What's actually right |
+|---|---|---|
+| Test patch path | `patch("httpx.get", ...)` for a route test | `patch("app.routes.X.reverb.Y", ...)` — patch at the route boundary |
+| Stubbing `raise_for_status` | Forgets to stub it | Must add `mock.raise_for_status.return_value = None` |
+| `url_for` in templates | Suggests `url_for('index')` | Must be `url_for('blueprint_name.index')` with the prefix |
+| Mock `httpx.Response` | Uses `MagicMock()` with only `.json` set | Must also stub `.raise_for_status` and (if testing call assertions) `.status_code` |
+| Pico CSS overrides | Suggests Bootstrap-style utility classes (`.mt-4`, `.text-center`) | Pico has no spacing utilities — use custom CSS or `--pico-*` tokens |
+| `<details>` enhancement | Suggests jQuery `.toggle()` or React state | Use the native `toggle` event + `details.open` property |
+| HTMX endpoint return value | Returns a JSON dict | HTMX endpoints return **HTML fragments** — `render_template("_partial.html")` |
+| Adding a route with a service helper | Re-introduces the service layer the codebase deliberately collapsed | Stay consistent — keep filtering inline unless you've discussed adding the layer back |
+
+### Updated narration patterns
+
+When Copilot does the right thing for the new stack, name what it got right:
+
+> "Nice — Copilot used the blueprint patch path. That's correct because we're
+> testing at the route level, not at the HTTP boundary."
+>
+> "Copilot wrote `raise_for_status()` automatically — good. That's the boundary
+> discipline we want."
+
+When Copilot pulls in a pattern from the old codebase, redirect it explicitly:
+
+> "Copilot wants to use `requests.get` here, but the codebase is on `httpx`.
+> Let me rewrite that."
+>
+> "It suggested `url_for('index')` — missing the blueprint prefix. The right
+> form is `url_for('categories.index')`. This is the kind of thing I always
+> verify when Copilot autocompletes URL generation."
+>
+> "Copilot reached for jQuery to handle the toggle. We don't have jQuery, and
+> the native `<details>` element already gives us this — I'll use the `toggle`
+> event instead."
+
+### Opening statement update
+
+The original opening statement still works. For the new codebase, you can add
+one sentence that signals stack awareness:
+
+> "I saw the note about Copilot and AI tooling. I have Copilot configured in
+> VS Code, so I'm happy to use it naturally during the session. I'll narrate
+> my thinking as suggestions come up — accepting the good ones, adjusting or
+> rejecting the rest. **One thing I'll watch for is Copilot pulling patterns
+> from older Flask/`requests` examples when this codebase is on `httpx` and
+> Blueprints — I'll call those out as I redirect them.** Let me know if you'd
+> prefer I turn it off at any point."
+
+That sentence does three things at once: shows stack awareness, signals
+critical AI review, and inoculates against the inevitable moment Copilot
+suggests `requests.get` or a missing blueprint prefix.
+
+See Chapter [16](16-new-codebase-stack-guide.md) for the full stack reference.

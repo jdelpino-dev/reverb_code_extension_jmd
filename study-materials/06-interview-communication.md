@@ -205,3 +205,44 @@ After implementing:
 > [what it checks]. With more time I'd add [1-2 specific improvements]:
 > error handling for API failures, and an empty state message when no results
 > match."
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The communication frameworks above are unchanged. What changes is the
+**vocabulary** — a few terms make you sound fluent with the new stack instead
+of speaking in old-codebase terms.
+
+### Updated observation phrasings
+
+| Observation in the new code | What to say |
+|---|---|
+| Route calls `reverb.categories()` directly, no service helper | "The service layer is collapsed here — fine for the current scope, but I'd extract a `services/` module if I were adding pagination or caching" |
+| Tests patch at the route boundary | "They're patching at the route level rather than the HTTP level — cleaner, but the test no longer cares which HTTP library is used" |
+| Client calls `response.raise_for_status()` | "Good — HTTP errors fail fast at the boundary instead of cascading into `KeyError` downstream" |
+| `httpx` instead of `requests` | "`httpx` keeps the synchronous API familiar but gives us the option to go async later if we need parallel calls" |
+| HTMX loaded but unused in `layout.html` | "HTMX is wired up but no routes use it yet — it's the natural next step for partial updates on the search form" |
+| Pico CSS instead of Bootstrap | "Pico styles semantic HTML directly — a `<button>` doesn't need `class='btn btn-primary'`. For card layouts though, custom CSS Grid is doing the work" |
+| `<input type="submit">` in the form | "I'd swap that for `<button type='submit'>` — same Pico styling, but `<button>` can hold an icon or a loading state" |
+| Photo URL chained `.get()` calls in the template | "That defensive chain handles listings without photos. I'd consider lifting it into the route so it's testable in isolation" |
+
+### New trade-off phrases
+
+- "Pico gives me this for free with `<details>` — I don't need to write JS."
+- "This is the kind of thing HTMX is for — partial swap on the server side, no client framework."
+- "I'd add `aria-busy=\"true\"` during the request — Pico renders a spinner with zero CSS."
+- "For the trigger label swap I'd use `data-label-open` / `data-label-closed`
+  attributes — about 10 lines of vanilla JS, no framework."
+- "The query param is `search` here, not `query` like in the older version."
+
+### New questions to ask THEM
+
+- "Is HTMX expected for this scenario, or should I keep it server-rendered only?"
+- "Should the search be a full page reload or an HTMX swap into a results div?"
+- "Do you want me to add a service layer for this, or keep the logic inline in the route?"
+- "For the spinner/loading state, can I use `aria-busy` or should I roll a custom one?"
+
+See Chapters [16](16-new-codebase-stack-guide.md), [17](17-pico-css-audit.md),
+and [18](18-pico-css-guide.md) for the underlying material these phrasings
+are drawn from.

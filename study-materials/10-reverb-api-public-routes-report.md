@@ -2259,3 +2259,65 @@ Order responses expose action links that demonstrate HATEOAS beyond what public 
 - `feedback_for_buyer`, `feedback_for_seller` — trust system
 - `conversation`, `start_conversation` — messaging
 - `payments` — financial details
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The API surface itself is unchanged — this report stays accurate. What's worth
+knowing is how the **new codebase consumes it differently** from the old one.
+
+### How the new client differs in its API usage
+
+| Detail | Old codebase | New codebase |
+|---|---|---|
+| HTTP library | `requests` | `httpx` (sync API; ready for async) |
+| Base URL | Hardcoded `https://api.reverb.com/api` | `os.environ["REVERB_HOST"]` + `/api/` prefix |
+| `Accept` header | `application/hal+json` | `application/json` (Reverb ignores `Accept` anyway — see § 2.1.1) |
+| `Content-Type` header | Sent on GET | **Not sent** (correct — GET has no body) |
+| `Accept-Version` header | `3.0` | `3.0` (unchanged) |
+| Error path | Silent — bad status returns body JSON | `response.raise_for_status()` raises explicitly |
+| Listings endpoint | `/listings/all` | `/listings` |
+
+The `Accept` header change from `hal+json` to plain `json` makes no practical
+difference because Reverb ignores `Accept` entirely (verified in § 2.1.1
+above). The new codebase is technically less self-documenting on the HAL
+intent, but functionally identical in what it receives.
+
+The `/listings` vs `/listings/all` difference is worth verifying empirically
+if a scenario adds listing-related functionality — the two endpoints can
+differ in pagination behavior and default response shape.
+
+### Header strategy for the new codebase
+
+For any new HTTP call you add, follow the codebase's existing pattern:
+
+```python
+HEADERS = {"Accept": "application/json", "Accept-Version": "3.0"}
+
+def _get(path, params=None):
+    host = os.environ["REVERB_HOST"]
+    response = httpx.get(f"{host}/api/{path}", params=params or {}, headers=HEADERS)
+    response.raise_for_status()
+    return response.json()
+```
+
+If you need a header that varies per request (localization, currency, shipping
+region — see § 2.1 above), add it as a parameter rather than mutating the
+module-level `HEADERS` dict.
+
+### What this means for scenarios
+
+- **Detail page scenario**: Reverb's HAL `_links` give you the canonical detail
+  URL per listing. With the new client, fetching one listing is
+  `_get(f"listings/{listing_id}")` — follow the same module-function pattern,
+  not a class method.
+- **Pagination scenario**: HAL `_links.next.href` is the cleanest paginator
+  signal. The new client returns a stripped list (`json["listings"]`) — to
+  preserve pagination metadata you may need to return the full envelope from
+  the client or extract it inside the route.
+- **Pricing scenario**: header-driven currency negotiation (§ 2.1) works
+  identically — you'd pass `X-Display-Currency` per request.
+
+See Chapter [16](16-new-codebase-stack-guide.md) for the full new-codebase
+stack reference.

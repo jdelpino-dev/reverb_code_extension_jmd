@@ -166,3 +166,86 @@ any scenario adds POST routes.
 | **Content-Security-Policy** | HTTP header restricting what scripts can execute |
 | **ReDoS** | Malicious regex input causing exponential backtracking |
 | **Path traversal** | Using `../` to escape intended directory/path scope |
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The new codebase fixes some of the vulnerabilities above and introduces new
+surface area worth knowing about.
+
+### What the new codebase fixed
+
+| Old vulnerability | New codebase status |
+|---|---|
+| No error handling on API responses | **Fixed** — `response.raise_for_status()` makes HTTP errors explicit |
+| Mutable default argument `params={}` | **Fixed** — `params=None` with `params or {}` |
+| Hardcoded API base URL | **Fixed** — reads from `REVERB_HOST` env var |
+
+What to say in interview: "The new client calls `raise_for_status()` and reads
+the host from an env var — small things, but they close the most common
+cascading-failure paths from the old version."
+
+### What the new codebase still doesn't address
+
+| Concern | Status | What to mention |
+|---|---|---|
+| No request timeout | Still missing | `httpx.get(..., timeout=10.0)` should be added — same DoS argument as before |
+| Debug mode in dev server | Still risky | `flask --debug` enables Werkzeug debugger — production must disable |
+| No input validation on `search` | Still passes through | Safe today (used with `in` operator), would matter if regex search is added |
+| HTMX CDN script | New surface | Loaded via CDN with SRI hash — good. If we self-hosted, we'd need our own integrity check |
+| Pico CSS CDN | New surface | Loaded via CDN with no SRI hash — worth adding for production |
+
+### New security surface: HTMX and CDN resources
+
+The `layout.html` loads two CDN-hosted assets:
+
+```html
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js"
+  integrity="sha384-..."
+  crossorigin="anonymous"></script>
+```
+
+- **HTMX uses `integrity` (SRI)** — if jsDelivr is compromised and serves a
+  modified script, the browser blocks it. Good practice.
+- **Pico CSS does NOT use `integrity`** — a CSS injection via jsDelivr could,
+  in theory, exfiltrate data via CSS selectors and background URLs. Worth
+  mentioning if security comes up: "I'd add a Subresource Integrity hash to
+  the Pico CSS link tag to match HTMX's pattern."
+
+### New security surface: HTMX itself
+
+If you add HTMX endpoints during the interview, two things to remember:
+
+1. **HTMX swaps server-rendered HTML directly into the DOM.** If you return
+   user-supplied content unescaped, you've reintroduced XSS even though Jinja2
+   auto-escapes by default. **Don't use `|safe` on user input in HTMX partial
+   templates.**
+2. **CSRF on HTMX POSTs.** If a scenario adds a form that posts via HTMX,
+   it needs CSRF protection like any other Flask POST. HTMX doesn't add or
+   exempt anything CSRF-wise.
+
+### New security surface: `data-*` attributes
+
+The new templates and any vanilla-JS enhancements use `data-*` attributes
+(see [Chapter 19](19-data-attributes-and-dataset.md)). One-liner to know:
+
+- **`data-*` is public.** Anyone with DevTools can read it. Never put tokens,
+  emails, IDs that aren't already user-visible, or any other sensitive value
+  into a `data-*` attribute. Use server-side session data or proper auth
+  headers instead.
+
+### Updated "what to mention" table
+
+| Situation | One-liner |
+|---|---|
+| Adding a new `httpx.get` call | "I'd set a timeout on the httpx call — default is none, which is a DoS risk" |
+| Adding an HTMX endpoint that returns user content | "I'm relying on Jinja2 auto-escape — I won't use `\|safe` on user input in this partial" |
+| Adding a POST route | "I'd add Flask-WTF for CSRF protection — HTMX doesn't change that requirement" |
+| Adding a `data-*` attribute | "This is fine because the value isn't sensitive — `data-*` is always public" |
+| CDN-loaded scripts | "I'd add an SRI hash to the Pico CSS tag to match HTMX's pattern" |
+
+See Chapter [16](16-new-codebase-stack-guide.md) for the full stack reference
+and Chapter [19](19-data-attributes-and-dataset.md) for the data-attribute
+threat model.

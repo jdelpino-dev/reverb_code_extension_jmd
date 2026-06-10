@@ -160,3 +160,64 @@ The team does "a lot of frontend." You don't need to implement React in the inte
 - [ ] Can I name 4 React hooks and when you'd use each?
 - [ ] Do I have 3 questions ready that show product thinking?
 - [ ] Have I practiced saying "In an A&R context, this matters because..."?
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The team-fit narrative is unchanged. What changes is which **specific
+technical decisions** in the new codebase tie back to A&R metrics naturally.
+
+### Updated scenario-to-A&R mapping for new-codebase features
+
+| New-codebase feature | A&R framing |
+|---|---|
+| HTMX partial swaps (live search results) | "Perceived speed is conversion — if a user types a query and the page never feels like it reloads, they stay engaged longer. HTMX gives us that without shipping a React bundle." |
+| `<details>` for filter panels (no JS) | "Progressive disclosure keeps the initial view simple for first-time visitors — they're not overwhelmed — but power users can expand filters. The native HTML implementation means even users on slow connections or with JS blocked still get the feature." |
+| `aria-busy="true"` during HTMX requests | "Loading feedback is critical for retention — silent waits feel like the app is broken. A spinner via `aria-busy` is one attribute and one CSS rule — highest ROI accessibility-and-conversion fix possible." |
+| Service layer for caching categories | "Categories rarely change — caching them per-process means returning visitors get instant loads. Sub-200ms time-to-interactive on the second visit is a measurable retention driver." |
+| Async dashboard composition (`httpx.AsyncClient`) | "Parallel fetches mean a dashboard with three data sources loads in the time of one. For a retention surface like 'what's new since your last visit', that latency matters." |
+| Pico CSS + custom styling | "~10KB CSS vs Bootstrap's ~150KB+. Page weight is a conversion lever — every 100ms of initial load costs measurable conversions in e-commerce." |
+| `data-*` attribute enhancements | "Vanilla JS enhancements layered on top of server-rendered HTML — the page works without JS, gets better with JS. That's progressive enhancement, which is the right model for an acquisition page where you can't assume the client environment." |
+
+### New stack vocabulary that shows fit
+
+Weave these in naturally during scenario discussions:
+
+- **"Progressive enhancement"** — server-rendered HTML that works without JS,
+  gets richer with JS. The new codebase's HTMX + `<details>` + `data-*` pattern
+  is textbook progressive enhancement. A&R teams care because acquisition
+  pages get visited by every client environment imaginable.
+- **"Time to interactive"** — the moment a user can actually click something
+  and have it respond. The new stack's small CSS bundle and absence of a JS
+  framework win this metric vs a React-heavy stack.
+- **"HTML-over-the-wire"** — the philosophy behind HTMX (and Hotwire / Turbo
+  on the Rails side). Mentioning this shows you understand the team's likely
+  Rails-side equivalents.
+- **"Server-driven UI"** — same idea, different vocabulary. A&R-friendly
+  because it keeps the rendering authority on the server where you can run
+  experiments, A/B tests, and personalization without shipping code to clients.
+
+### Updated Ruby/Rails bridge
+
+The new codebase's HTMX + server-rendered partial pattern maps directly to
+Rails' **Hotwire / Turbo** stack:
+
+| New Flask codebase | Rails equivalent |
+|---|---|
+| `layout.html` with `{% block content %}` | `application.html.erb` with `yield` |
+| `{% include "partials/navigation.html" %}` | `<%= render "shared/navigation" %>` |
+| HTMX `hx-get` returning a partial template | Turbo Frame fetching a partial |
+| `<details>` for disclosure | Turbo doesn't replace this — native HTML wins |
+| Pico CSS classless components | Rails apps often use Tailwind + ViewComponent; the philosophy is the same — stop reaching for a JS framework when CSS + HTML suffice |
+
+If asked about Rails fluency:
+
+> "The pattern this Flask codebase is reaching for — server-rendered HTML with
+> small partial swaps via HTMX — is exactly what Hotwire is for on the Rails
+> side. Turbo Frames, Stimulus controllers, and the 'HTML over the wire'
+> philosophy. The mental model transfers cleanly."
+
+See Chapter [16](16-new-codebase-stack-guide.md) for the full stack reference
+and Chapter [18 § Progressive Disclosure](18-pico-css-guide.md) for the
+declarative-vs-JS trade-off discussion.

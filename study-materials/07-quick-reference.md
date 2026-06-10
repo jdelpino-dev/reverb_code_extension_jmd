@@ -275,3 +275,158 @@ assert 'Guitar' in html.body.h1.text
 # Check absence
 assert len(html.body.find_all('ul.list-group')) == 0
 ```
+
+---
+
+## New Codebase Quick Reference (June 2026)
+
+Use these alongside the old-codebase commands above. Pick the right set
+depending on which codebase the interview lands in.
+
+### Commands
+
+```bash
+# Install dependencies (dev + prod)
+uv sync --dev
+
+# Run the dev server
+uv run flask --app app run --debug
+
+# Run all tests
+uv run pytest
+
+# Run one test
+uv run pytest tests/test_categories.py::test_search_matching_categories_displays_them
+
+# Lint / format
+uv run ruff check .
+uv run ruff check . --fix
+uv run ruff format .
+
+# Add a dependency
+uv add httpx
+uv add --dev pytest
+```
+
+### Flask Blueprint patterns
+
+```python
+# app/__init__.py
+def create_app():
+    app = Flask(__name__)
+    from app.routes.categories import categories_bp
+    app.register_blueprint(categories_bp)
+    return app
+
+# app/routes/categories.py
+categories_bp = Blueprint("categories", __name__)
+
+@categories_bp.route("/categories")
+def index():
+    return render_template("categories/index.html", ...)
+```
+
+### `url_for` with Blueprints
+
+```jinja2
+{{ url_for('categories.index') }}                 {# blueprint.function #}
+{{ url_for('listings.index', page=2) }}
+{{ url_for('static', filename='css/app.css') }}
+```
+
+### `httpx` client patterns
+
+```python
+import os, httpx
+
+HEADERS = {"Accept": "application/json", "Accept-Version": "3.0"}
+
+def _get(path, params=None):
+    host = os.environ["REVERB_HOST"]
+    response = httpx.get(f"{host}/api/{path}", params=params or {}, headers=HEADERS)
+    response.raise_for_status()    # ← always
+    return response.json()
+```
+
+### Mock patterns (new codebase)
+
+```python
+# Route-level test — patch at the route boundary
+with patch("app.routes.categories.reverb.categories", return_value=CATEGORIES):
+    response = client.get("/categories?search=guitar")
+
+# Client-level test — patch httpx + stub raise_for_status
+def make_mock_response(data):
+    mock = MagicMock()
+    mock.json.return_value = data
+    mock.raise_for_status.return_value = None    # ← critical
+    return mock
+
+with patch("httpx.get", return_value=make_mock_response({"categories": [...]})) as mock_get:
+    reverb.categories()
+    mock_get.assert_called_once_with(
+        "https://api.reverb.test/api/categories/flat",
+        params={}, headers=reverb.HEADERS,
+    )
+```
+
+### Test assertion style
+
+```python
+# New codebase — raw byte assertions on response.data
+assert response.status_code == 200
+assert b"Guitars" in response.data
+assert b'class="category-card"' in response.data
+assert b'value="guitar"' in response.data       # echoed search term
+```
+
+### Jinja2 patterns specific to the new templates
+
+```jinja2
+{# Template inheritance #}
+{% extends "layout.html" %}
+{% block title %}Category Search{% endblock %}
+{% block content %}...{% endblock %}
+
+{# Partial include #}
+{% include "partials/navigation.html" %}
+
+{# Safe nested dict access (listings template pattern) #}
+{% set photo_url = listing.get("photos", [{}])[0].get("_links", {}).get("thumbnail", {}).get("href") %}
+{% if photo_url %}
+  <img src="{{ photo_url }}" alt="{{ listing['title'] }}">
+{% endif %}
+```
+
+### Pico CSS one-liners
+
+```html
+<button aria-busy="true">Searching…</button>          <!-- spinner -->
+<input aria-invalid="true">                            <!-- red validation -->
+<button data-tooltip="Hint">?</button>                 <!-- tooltip -->
+<fieldset role="group">                                <!-- joined input bar -->
+<details><summary>Show more</summary>...</details>     <!-- disclosure -->
+<details name="x">...</details>                        <!-- accordion (1 open) -->
+<details class="dropdown"><summary>Sort</summary><ul>...</ul></details>
+<nav aria-label="breadcrumb">                          <!-- breadcrumb styling -->
+```
+
+### `data-*` / `.dataset` quick patterns
+
+```html
+<details data-disclosure data-label-closed="More" data-label-open="Less">
+```
+
+```javascript
+document.querySelectorAll("[data-disclosure]").forEach(d => {
+  const open = d.dataset.labelOpen;
+  const closed = d.dataset.labelClosed;
+  d.addEventListener("toggle", () => {
+    d.querySelector("summary").textContent = d.open ? open : closed;
+  });
+});
+```
+
+See Chapters [16](16-new-codebase-stack-guide.md) (full stack guide),
+[18](18-pico-css-guide.md) (Pico toolkit), and
+[19](19-data-attributes-and-dataset.md) (data-attributes deep dive).

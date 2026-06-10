@@ -260,3 +260,84 @@ Do NOT:
 - [ ] Live Share extension installed and tested
 - [ ] Practiced accepting/rejecting Copilot suggestions while narrating
 - [ ] Prepared opening line about AI tooling (see chapter 14)
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The pairing dynamics above are unchanged. What changes is the **mechanical
+workflow** — commands, file locations, and the order in which you touch layers.
+
+### Commands to memorize
+
+```bash
+# Install dependencies (first thing you might do)
+uv sync --dev
+
+# Run the dev server (with hot reload)
+uv run flask --app app run --debug
+
+# Run all tests
+uv run pytest
+
+# Run one test file
+uv run pytest tests/test_categories.py
+
+# Run one specific test
+uv run pytest tests/test_categories.py::test_search_matching_categories_displays_them
+
+# Lint and format
+uv run ruff check .
+uv run ruff format .
+```
+
+If you start typing `pipenv` or `pip install` in the new codebase, stop and
+restart with `uv`. Saying the right tool out loud signals fluency.
+
+### Updated Phase 1: Orientation (0–5 min)
+
+Narrate as you trace the new structure:
+
+1. "`app/__init__.py` has the factory — `create_app()` registers two Blueprints."
+2. "Routes are split into `app/routes/categories.py` and `app/routes/listings.py`."
+3. "The client is a module — `app/clients/reverb.py` — using `httpx`, calling
+   `raise_for_status()`, reading host from `REVERB_HOST` env var."
+4. "Templates live under `templates/categories/`, `templates/listings/`, and
+   `templates/partials/`. `layout.html` is the base with Pico CSS and HTMX loaded."
+5. "Tests use a shared `client` fixture in `conftest.py` and patch at the route
+   boundary — `with patch('app.routes.X.reverb.Y', return_value=...)`."
+
+### Updated Phase 3: Implementation Order
+
+The **service-helper step is now optional** because the new codebase doesn't have
+one. Default order:
+
+1. **Client function** (if the feature needs a new endpoint)
+2. **Route handler** (does the filtering / coordination inline)
+3. **Template** (extends `layout.html`, lives in the resource subdir)
+4. **Test** (route-level with `with patch(...)`)
+
+If the feature has real business logic (pagination, multi-source data, caching),
+**propose adding a `services/` module out loud** before writing it:
+
+> "This is getting complex enough that I want a service layer. I'll add
+> `app/services/categories.py` for the caching/pagination logic so the route
+> stays thin."
+
+This is the right time to bring up the collapsed-service-layer trade-off.
+
+### What to do if `<details>` / Pico / HTMX comes up
+
+The new templates have HTMX loaded but unused, and Pico CSS as the framework.
+If a scenario asks for interactivity:
+
+- **Show/hide content** → `<details>` / `<summary>` (no JS, see Chapter 18)
+- **Live search / lazy loading** → HTMX `hx-get` / `hx-trigger` (no JS framework)
+- **Loading spinner** → `aria-busy="true"` on the element (Pico styles it)
+- **Show-more with label swap** → `data-*` attributes + ~10 lines of vanilla JS
+  (see Chapter 19)
+
+Mentioning these by name signals fluency with the new stack.
+
+See Chapters [16](16-new-codebase-stack-guide.md), [18](18-pico-css-guide.md),
+and [19](19-data-attributes-and-dataset.md) for the full reference.

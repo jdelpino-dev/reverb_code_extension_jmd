@@ -1263,3 +1263,104 @@ ______________________________________________________________________
 ### "Why not use httpx or aiohttp?"
 
 > "For a synchronous Flask app, `requests` with a Session is the simplest correct choice. If we needed async or HTTP/2, I would reach for `httpx`. The architectural patterns (centralized `_get`, retries, error hierarchy) transfer directly to any HTTP library."
+
+______________________________________________________________________
+
+## New Codebase Addendum (June 2026)
+
+The improvements above were written against the old `ReverbClient` class. The
+new codebase has a **module-function client using `httpx`**, so the discussion
+shifts. Some improvements are now built in; others still apply but with
+different mechanics.
+
+### What the new client already does
+
+```python
+# app/clients/reverb.py
+import os, httpx
+
+HEADERS = {"Accept": "application/json", "Accept-Version": "3.0"}
+
+def _get(path, params=None):
+    host = os.environ["REVERB_HOST"]
+    response = httpx.get(f"{host}/api/{path}", params=params or {}, headers=HEADERS)
+    response.raise_for_status()
+    return response.json()
+```
+
+| Original improvement | New codebase status |
+|---|---|
+| Persistent `requests.Session` | **Not done** — each `httpx.get` is a fresh connection. `httpx.Client()` is the equivalent and would be a real improvement. |
+| Shared headers via session | **Done differently** — module-level `HEADERS` dict passed each call. Functionally similar but no connection pooling. |
+| `params=None` (fix mutable default) | **Done** — `params=None` with `params or {}` |
+| `raise_for_status()` | **Done** — explicit at the boundary |
+| Centralized `_get` helper | **Done** — same shape as the original recommendation |
+| Configurable base URL | **Done** — via `REVERB_HOST` env var, read at call time |
+| Timeout | **Still missing** — `httpx.get` has no default timeout |
+| Retry policy | **Still missing** — no `httpx.Transport` configured |
+| Throttling / rate limiting | **Still missing** |
+| Caching | **Still missing** |
+| Exception hierarchy | **Inherited from httpx** — `httpx.HTTPStatusError`, `httpx.RequestError`, etc. Use these in service-layer `except` clauses. |
+
+### Top improvement to propose: persistent `httpx.Client`
+
+The biggest single improvement to the new codebase is upgrading from module-level
+`httpx.get` to a long-lived `httpx.Client`:
+
+```python
+# app/clients/reverb.py
+import os, httpx
+
+HEADERS = {"Accept": "application/json", "Accept-Version": "3.0"}
+
+_client = httpx.Client(
+    base_url=f'{os.environ["REVERB_HOST"]}/api/',
+    headers=HEADERS,
+    timeout=httpx.Timeout(10.0, connect=3.0),
+)
+
+def _get(path, params=None):
+    response = _client.get(path, params=params or {})
+    response.raise_for_status()
+    return response.json()
+```
+
+What this unlocks:
+
+- **HTTP/2 + connection pooling** — same TLS reuse argument as `requests.Session`
+- **Per-client timeout** — closes the DoS gap from Chapter 9
+- **Base URL handling** — cleaner relative paths (`_client.get("categories/flat")`)
+- **One place to add auth / retries / instrumentation** — just like the session
+  story above
+
+Trade-off: reading env vars at import time means tests must set `REVERB_HOST`
+before import. The codebase already uses a pytest `monkeypatch.setenv` fixture
+for this — so it's compatible.
+
+### Async option (mention if dashboard-style fanout comes up)
+
+```python
+# For parallel fanout — e.g., dashboard pulling categories + listings
+async def fanout():
+    async with httpx.AsyncClient(...) as client:
+        cats, listings = await asyncio.gather(
+            client.get("categories/flat"),
+            client.get("listings"),
+        )
+    return cats.json(), listings.json()
+```
+
+Flask 3.1 supports `async def` view functions — so this works end-to-end
+without changing frameworks. **Don't propose this unless the scenario
+actually needs concurrent calls** — it's overkill for a single endpoint.
+
+### Updated "why not httpx" answer
+
+> "The codebase already uses `httpx`. If asked why it was chosen: it has a
+> nearly identical sync API to `requests` but adds explicit `raise_for_status`
+> ergonomics and a clean path to async via `httpx.AsyncClient` if we ever need
+> parallel calls. For a synchronous read-only client like this, the difference
+> is small, but the option matters."
+
+See Chapter [16 § httpx vs requests](16-new-codebase-stack-guide.md) for the
+side-by-side comparison.

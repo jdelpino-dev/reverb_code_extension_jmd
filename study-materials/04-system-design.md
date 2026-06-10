@@ -271,3 +271,79 @@ When asked about system design in the context of this codebase:
 > consumes through their GraphQL gateway. In their real architecture, the Gateway
 > handles caching, auth, and rate limiting — things this simple Flask app skips
 > because it's read-only and unauthenticated."
+
+---
+
+## New Codebase Addendum (June 2026)
+
+The system-design framework above is unchanged. What changes is the set of
+tools at your disposal when answering "how would you extend this?" — the new
+codebase opens doors that the old one didn't.
+
+### New levers for system-design discussions
+
+| Concern | New codebase tool | What it unlocks |
+|---|---|---|
+| Async I/O | `httpx` (already in use) | Swap `httpx.get` for `httpx.AsyncClient` to fan out parallel calls (e.g., dashboard pulling categories + listings + featured items concurrently) |
+| Partial rendering | HTMX (already loaded) | Server-driven progressive enhancement — search results, pagination, filter panels update without full reloads or a JS framework |
+| Lazy loading | HTMX `hx-trigger="toggle"` + `<details>` | Show-more / show-on-demand UX with zero JS |
+| Declarative interactivity | `data-*` + `aria-*` attributes | Loading states, validation, tooltips, disclosure — all without a JS framework |
+| Service-layer extension point | Currently absent | Adding a `services/` module is the natural seam for caching, pagination, and combining client calls |
+
+### "How would you add caching?" — updated answer
+
+The original answer (`@lru_cache` on `_load_categories`) doesn't apply since the
+service helper no longer exists. Two clean options for the new codebase:
+
+1. **Decorate the client function directly** — `@lru_cache` on `reverb.categories()`.
+   Simple, but ties caching policy to the IO function.
+2. **Reintroduce a service layer** for caching:
+
+   ```python
+   # app/services/categories.py
+   from functools import lru_cache
+   from app.clients import reverb
+
+   @lru_cache(maxsize=1)
+   def all_categories():
+       return reverb.categories()
+   ```
+
+   Then routes call `categories_service.all_categories()` instead of
+   `reverb.categories()`. This is the right shape for any non-trivial caching
+   (TTL, per-locale keys, invalidation).
+
+### "How would you add pagination?" — updated
+
+The client already accepts `per_page`. To add real pagination:
+
+1. Add `page` to `reverb.listings(per_page=10, page=1)` and pass it through.
+2. Return the full response envelope (not just the `listings` key) so the route
+   can read pagination metadata (`total`, `total_pages`, `current_page`).
+3. Route extracts `page` from `request.args.get("page", 1, type=int)`.
+4. Template renders prev/next links with `{{ url_for('listings.index', page=...) }}`.
+5. If HTMX is wired up: `hx-get="/listings?page=2" hx-target="#listing-grid"` for
+   in-place pagination with no full reload.
+
+### "How would you handle dashboard composition?" — new answer
+
+The new stack makes a parallel-fetch dashboard trivial with `httpx.AsyncClient`:
+
+```python
+import httpx, asyncio
+
+async def dashboard_data():
+    async with httpx.AsyncClient() as client:
+        cats, listings = await asyncio.gather(
+            client.get(f"{HOST}/api/categories/flat"),
+            client.get(f"{HOST}/api/listings"),
+        )
+    return {"categories": cats.json()["categories"], "listings": listings.json()["listings"]}
+```
+
+With Flask 3.1, the route can be `async def` and Flask handles the event loop.
+This is genuinely useful for dashboard scenarios and is a strong differentiator
+vs the old `requests`-based codebase, where you'd need threads or a separate
+async framework.
+
+See [Chapter 16](16-new-codebase-stack-guide.md) for the full stack reference.
