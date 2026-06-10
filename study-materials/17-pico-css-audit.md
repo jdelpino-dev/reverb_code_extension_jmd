@@ -84,35 +84,36 @@ Pico reduces `<small>` to `0.875em`. Works as intended.
 
 ## What Is Redundant (Double-Styling)
 
-### `<article>` + manual card borders
+### `<article>` + manual `border-radius`
 
-The biggest redundancy. Pico already styles `<article>` as a card:
+Pico styles `<article>` as a card using `box-shadow` — **not** `border`. The
+actual Pico rules on `<article>` are:
 
-- `border: var(--pico-border-width) solid var(--pico-muted-border-color)` ✓
 - `border-radius: var(--pico-border-radius)` ✓
-- `padding: var(--pico-card-sectioning-background-color)` ✓
+- `background: var(--pico-card-background-color)` ✓
+- `box-shadow: var(--pico-card-box-shadow)` ✓ — this is what gives the card its
+  elevation; there is no `border` property on `<article>`
 
-But `app.css` then adds:
+So in `app.css`:
 
 ```css
 .category-card,
 .listing-card {
-  border: 1px solid var(--pico-muted-border-color);   /* already on <article> */
-  border-radius: var(--pico-border-radius);            /* already on <article> */
+  border: 1px solid var(--pico-muted-border-color);   /* load-bearing — Pico does NOT set this */
+  border-radius: var(--pico-border-radius);            /* redundant — <article> already has this */
 }
 ```
 
-This doesn't break anything because the values match Pico's own tokens — but it's
-noise. Pico's `<article>` styles would produce the same result with no custom CSS
-at all for these two rules.
+Only `border-radius` is redundant here. The `border` rule is genuinely
+load-bearing — without it the cards would have no visible border outline at all,
+only a box-shadow.
 
 **What could be removed:**
 
 ```css
-/* These two rules are redundant — <article> already has them from Pico */
+/* Only border-radius is redundant — <article> already has it from Pico */
 .category-card,
 .listing-card {
-  border: 1px solid var(--pico-muted-border-color);
   border-radius: var(--pico-border-radius);
 }
 ```
@@ -392,7 +393,8 @@ Pico's breakpoints — `576px` or `768px` — by convention.
 | `.container` on `<header>` and `<main>` | Correct | — |
 | Nav `<ul>/<ul>` split pattern | Correct | — |
 | `--pico-*` token references in `app.css` | Correct where used | — |
-| `border`/`border-radius` on `.category-card`, `.listing-card` | Redundant — `<article>` already has them | Visual noise |
+| `border` on `.category-card`, `.listing-card` | Not redundant — Pico uses `box-shadow` on `<article>`, not `border`; this is load-bearing | — |
+| `border-radius` on `.category-card`, `.listing-card` | Redundant — `<article>` already has it | Visual noise |
 | `padding: 1rem` on `.category-card` | Redundant — overrides `<article>`'s `--pico-card-spacing` with raw value | Low |
 | No `data-theme` attribute | Correct — omitting it is the proper "auto" mode in Pico | — |
 | Not using Pico's `.grid` | Correct — Pico `.grid` can't express `auto-fill`/`minmax`; custom Grid is the right tool for card layouts | — |
@@ -417,9 +419,10 @@ Pico's breakpoints — `576px` or `768px` — by convention.
 > would be to scope it or override via `--pico-font-weight`. Similarly, `nav a`
 > sets `color: var(--pico-color)` globally, which strips the accent link color
 > from all nav links — a `.nav-logo-link` scoped rule would be cleaner. On the
-> redundancy side, `<article>` already gets Pico's border, border-radius, and
-> card spacing for free, so those rules in `app.css` double up on what Pico
-> provides. And the `@media (min-width: 600px)` breakpoint is between Pico's
+> redundancy side, `<article>` already gets `border-radius` and card spacing
+> from Pico, so those rules in `app.css` partially double up on what Pico
+> provides. Worth noting: Pico uses `box-shadow`, not `border`, on `<article>`,
+> so the explicit `border` in `app.css` is actually load-bearing. And the `@media (min-width: 600px)` breakpoint is between Pico's
 > 576px and 768px marks — I'd align it to one of those to stay consistent with
 > the framework. None of this is blocking, but it signals the CSS was written
 > without fully reading the Pico docs."
