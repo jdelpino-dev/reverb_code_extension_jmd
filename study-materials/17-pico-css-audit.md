@@ -121,23 +121,40 @@ at all for these two rules.
 
 ## What Is Missing
 
-### No `data-theme` on `<html>`
+### No `data-theme` on `<html>` — and that is correct
 
 ```html
-<!-- Current -->
+<!-- Current — correct for automatic OS-based theming -->
 <html lang="en">
 
-<!-- More explicit — follows OS preference -->
-<html lang="en" data-theme="auto">
+<!-- Force light -->
+<html lang="en" data-theme="light">
 
-<!-- Or forces dark mode for the app -->
+<!-- Force dark -->
 <html lang="en" data-theme="dark">
 ```
 
-Without `data-theme`, Pico v2 uses `prefers-color-scheme` automatically, which
-works fine. But the intent is ambiguous — is the app designed to support both
-themes, or did the developer just not think about it? Adding `data-theme="auto"`
-makes the intention explicit with no behavior change.
+Pico v2 has exactly **two** valid `data-theme` values: `"light"` and `"dark"`.
+`data-theme="auto"` is **not** a documented Pico value and can silently break
+theme switching. Pico's selectors are written as:
+
+```css
+:root:not([data-theme="dark"]) { /* light rules */ }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { /* dark rules */ }
+}
+```
+
+Setting `data-theme="auto"` puts a `data-theme` attribute on `<html>` with a
+value that matches neither selector — it doesn't opt into `dark`, and it doesn't
+opt out of the `prefers-color-scheme` dark media query (because that checks for
+`data-theme="light"` specifically). The result is undefined behavior depending on
+which Pico selectors fire.
+
+**The real "auto" mode in Pico is no `data-theme` attribute at all** — exactly
+what the codebase does. `<html lang="en">` is correct: Pico defaults to light and
+activates dark rules automatically via `@media (prefers-color-scheme: dark)`.
 
 ### Pico's `.grid` class is not used
 
@@ -346,7 +363,7 @@ Pico's breakpoints — `576px` or `768px` — by convention.
 | `--pico-*` token references in `app.css` | Correct where used | — |
 | `border`/`border-radius` on `.category-card`, `.listing-card` | Redundant — `<article>` already has them | Visual noise |
 | `padding: 1rem` on `.category-card` | Redundant — overrides `<article>`'s `--pico-card-spacing` with raw value | Low |
-| No `data-theme` attribute | Missing — ambiguous intent | Low |
+| No `data-theme` attribute | Correct — omitting it is the proper "auto" mode in Pico | — |
 | Not using Pico's `.grid` | Conscious choice — custom grid is more capable | — |
 | Global `h1 {}` rule | Problem — bypasses Pico's custom property system; side-effects on layout; non-standard `-webkit-text-fill-color` | Medium |
 | Global `nav a { color }` override | Problem — too broad; strips link accent color from all nav links | Low–Medium |
