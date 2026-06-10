@@ -208,6 +208,164 @@ local and avoid the cascade problems described in [Chapter 17](17-pico-css-audit
 
 ---
 
+## Deciding: Default, `var(--pico-*)`, or Token Override?
+
+Three situations come up constantly when writing `app.css` against Pico, and
+mixing them up is the most common source of redundancy and cascade fights:
+
+1. The value is **already applied** by Pico → your rule is redundant
+2. The value is **not** applied, and you want it theme-aware → reference a token
+3. The value **is** applied via a token but you want a different value → override
+   the token, don't write a competing property
+
+Each has a concrete way to check.
+
+### 1. "Does Pico already set this on the element?"
+
+The fastest check is **browser DevTools**. Inspect the element and look at the
+**Styles** or **Computed** panel. If a rule comes from `pico.min.css`, Pico is
+already applying it — adding the same property in `app.css` is dead weight.
+
+A second check is to search the [Pico source on GitHub](https://github.com/picocss/pico/tree/main/scss)
+for the element name (`article`, `h1`, `button`, etc.) and read the rule.
+
+Quick reference for the most common cases:
+
+| Element | What Pico already sets |
+|---|---|
+| `<article>` | `border-radius`, `padding` (via `--pico-block-spacing-*`), `background`, `box-shadow` — but **not** `border` |
+| `<h1>`–`<h6>` | `font-weight`, `font-size`, `margin-bottom` |
+| `<a>` | `color` (via `--pico-primary`), underline on hover |
+| `<button>` | padding, background, `border-radius`, `font-weight` |
+| `<input>` | padding, border, `border-radius`, `width: 100%` |
+| `<small>` | `font-size: 0.875em` |
+
+If Pico already provides it → **delete your rule**. Example from the codebase:
+
+```css
+/* Redundant — <article> already has border-radius from Pico */
+.category-card {
+  border-radius: var(--pico-border-radius);
+}
+```
+
+### 2. "When should I write `var(--pico-*)` in a new rule?"
+
+Ask one question:
+
+> *Would this value need to change if the user switched to dark mode, or if Pico's theme was customized?*
+
+- **Yes** → reference the token, so the value follows the theme automatically
+- **No** → hardcode it; tokens for app-specific values don't exist and shouldn't
+
+```css
+/* Theme-sensitive — use tokens */
+.listing-card {
+  border: 1px solid var(--pico-muted-border-color);
+  color: var(--pico-muted-color);
+}
+
+/* Layout dimensions — no token exists, hardcoding is correct */
+.search-form {
+  max-width: 600px;
+}
+
+.listings-grid {
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+}
+```
+
+Things that almost always *should* use a token:
+
+- Colors of any kind (`color`, `background`, `border-color`)
+- `border-radius`
+- `border-width`
+- Spacing values that match `--pico-spacing` (1rem) or the typography spacing
+
+Things that almost always *should not*:
+
+- `gap` (no Pico equivalent)
+- Layout dimensions (`max-width`, `min-height`, grid track sizes)
+- Brand-specific font sizes and weights for non-text components (logos, icons)
+- Asset dimensions (logo SVG `width`/`height`)
+
+### 3. "When should I override a token instead of setting a property?"
+
+This is the subtle case. If Pico already styles the element **through a token**,
+and you want a *different value*, the Pico-idiomatic way is to **reassign the
+token on your scoped class** — not to write a higher-specificity property
+declaration that fights Pico's own rule.
+
+```css
+/* Wrong — fights Pico's cascade with a competing property
+   Pico's <article> rule still runs; yours just overrides it with a raw value
+   that won't track theme changes. */
+.category-card {
+  padding: 0.75rem;
+}
+
+/* Right — override the token Pico itself uses
+   Pico's <article> rule reads --pico-block-spacing-* and picks up your value. */
+.category-card {
+  --pico-block-spacing-vertical: 0.75rem;
+  --pico-block-spacing-horizontal: 0.75rem;
+}
+```
+
+Why this matters:
+
+- Your override stays *inside* Pico's token system, so dark-mode and theme
+  changes still flow through.
+- You don't increase specificity, so other Pico rules (hover states, focus
+  rings, breakpoint adjustments) keep working.
+- A reader can see immediately that you intentionally customized a Pico value,
+  rather than that you added a one-off rule.
+
+How to find the right token: inspect the element in DevTools, find the Pico
+rule that sets the property, and look at which `--pico-*` variable it
+references. That's the token to override on your class.
+
+### Decision tree
+
+```text
+Does Pico already apply this value to the element?
+│
+├── Yes
+│   │
+│   ├── Same value I want?      → DELETE my rule (redundant)
+│   │
+│   └── Different value?
+│       │
+│       ├── Pico set it via a --pico-* token?
+│       │       → OVERRIDE the token on a scoped class
+│       │
+│       └── Pico set it directly (no token)?
+│               → Write a property override, scoped as tightly as possible
+│
+└── No, Pico doesn't set this
+    │
+    ├── Should the value follow the theme?
+    │       → Use var(--pico-*)
+    │
+    └── App-specific (gap, max-width, brand size)?
+            → Hardcode it
+```
+
+### Applied to the current `app.css`
+
+| Rule | Verdict | Reason |
+|---|---|---|
+| `.category-card { border-radius: var(--pico-border-radius) }` | Delete | `<article>` already has it |
+| `.category-card { padding: 1rem }` | Override token instead | Pico sets padding via `--pico-block-spacing-*` |
+| `.listing-card { border: 1px solid var(--pico-muted-border-color) }` | Keep | Pico uses `box-shadow`, not border, on `<article>` — load-bearing |
+| `.listing-card img { margin-bottom: 1rem }` | Use token | `1rem` is exactly `--pico-spacing` |
+| `.empty-state { color: var(--pico-muted-color) }` | Keep | Theme-aware color, correct usage |
+| `.search-form { max-width: 600px }` | Hardcode | No Pico token for form widths |
+| `.listings-grid { gap: 1.5rem }` | Hardcode | No `--pico-gap` exists |
+
+---
+
 ## Patterns Likely To Come Up Extending This Codebase
 
 The interview scenarios involve adding features to the existing pages. These are
