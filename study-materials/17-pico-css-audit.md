@@ -156,9 +156,9 @@ which Pico selectors fire.
 what the codebase does. `<html lang="en">` is correct: Pico defaults to light and
 activates dark rules automatically via `@media (prefers-color-scheme: dark)`.
 
-### Pico's `.grid` class is not used
+### Pico's `.grid` class is not used — and that is the right call
 
-Pico v2 provides a `.grid` utility for equal-column layouts:
+Pico v2 provides a small `.grid` helper for simple equal-column layouts:
 
 ```html
 <div class="grid">
@@ -167,10 +167,41 @@ Pico v2 provides a `.grid` utility for equal-column layouts:
 </div>
 ```
 
-The codebase instead writes custom CSS Grid for `.categories-list` and
-`.listings-grid`. The custom version is actually *more capable* (uses
-`repeat(auto-fill, minmax(250px, 1fr))` for responsive columns), so this is a
-deliberate choice — but it's worth knowing the built-in exists.
+Pico itself is explicit that this is **intentionally minimal** — it is not a full
+grid system. There are no column spans, offsets, ordering utilities, or advanced
+breakpoint controls. Columns collapse to a single column below `768px`. It is
+suitable for forms, quick two/three-column groups, and simple prototypes:
+
+```html
+<!-- Good fit for Pico .grid -->
+<fieldset class="grid">
+  <input name="first_name" placeholder="First name">
+  <input name="last_name" placeholder="Last name">
+</fieldset>
+```
+
+For responsive card/list layouts — exactly what `.categories-list` and
+`.listings-grid` are — custom CSS Grid is the correct choice:
+
+```css
+.listings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+```
+
+This says: create as many columns as fit the viewport, each at least 250px wide,
+and let them expand evenly. Pico's `.grid` cannot express this — it has no
+`minmax` or `auto-fill` equivalent. **The codebase is making the right call here,
+not missing a Pico feature.**
+
+Practical rule:
+
+```plaintext
+Use Pico .grid   → simple equal columns, forms, quick prototypes
+Use custom Grid  → responsive card grids, listings, search results
+```
 
 ---
 
@@ -364,7 +395,7 @@ Pico's breakpoints — `576px` or `768px` — by convention.
 | `border`/`border-radius` on `.category-card`, `.listing-card` | Redundant — `<article>` already has them | Visual noise |
 | `padding: 1rem` on `.category-card` | Redundant — overrides `<article>`'s `--pico-card-spacing` with raw value | Low |
 | No `data-theme` attribute | Correct — omitting it is the proper "auto" mode in Pico | — |
-| Not using Pico's `.grid` | Conscious choice — custom grid is more capable | — |
+| Not using Pico's `.grid` | Correct — Pico `.grid` can't express `auto-fill`/`minmax`; custom Grid is the right tool for card layouts | — |
 | Global `h1 {}` rule | Problem — bypasses Pico's custom property system; side-effects on layout; non-standard `-webkit-text-fill-color` | Medium |
 | Global `nav a { color }` override | Problem — too broad; strips link accent color from all nav links | Low–Medium |
 | Hardcoded spacing values mixed with Pico tokens | Inconsistent — some values use tokens, equivalent ones don't | Low |
