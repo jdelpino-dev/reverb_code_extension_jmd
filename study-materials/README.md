@@ -17,7 +17,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 
 | Priority | Chapters | Why |
 | --- | --- | --- |
-| **CRITICAL** | 01 (Architecture), 05 (Pair Coding), 06 (Communication), 13 (A&R Team Fit), 14 (AI Strategy) | Direct match to every phase of the interview |
+| **CRITICAL** | 01 (Architecture), 05 (Pair Coding), 06 (Communication), 13 (A&R Team Fit), 14 (AI Strategy), **16 (New Stack Guide)** | Direct match to every phase of the interview |
 | **HIGH** | 02 (Testing), 03 (Flask Patterns), 07 (Quick Reference) | Technical depth you'll demonstrate live |
 | **MEDIUM** | 04 (System Design), 08 (Debugging) | Discussion topics and "what if" questions |
 | **LOWER** | 09 (Security) | Good awareness signals but unlikely to be tested directly |
@@ -37,12 +37,15 @@ The interview format is: **Read code → Explain architecture → Implement feat
 | 9 | [09-security-awareness.md](09-security-awareness.md) | Vulnerabilities in this codebase, OWASP patterns, what to mention |
 | 13 | [13-ar-team-fit.md](13-ar-team-fit.md) | A&R product framing, Ruby/Rails talking points, non-traditional background, React fluency |
 | 14 | [14-ai-use-strategy.md](14-ai-use-strategy.md) | AI tooling allowed, Copilot usage patterns, narration strategy, opening statement |
+| 16 | [16-new-codebase-stack-guide.md](16-new-codebase-stack-guide.md) | App factory, Blueprints, httpx, Pico CSS v2, HTMX, uv, ruff, new test patterns |
 
 ## Pre-Interview Checklist
 
-- [ ] Can run `pipenv run pytest -vs` without thinking
+- [ ] Can run `uv run pytest` (new) or `pipenv run pytest -vs` (old) without thinking
 - [ ] Can explain the full request flow for both `/categories` and `/listings`
-- [ ] Know the mock pattern: `patch('reverb_client.requests.get').start()`
+- [ ] Know the old mock pattern: `patch('reverb_client.requests.get').start()`
+- [ ] Know the new mock pattern: `with patch('app.routes.categories.reverb.categories', return_value=...)`
+- [ ] Can explain `create_app()` factory and why `conftest.py` uses it
 - [ ] Can add a new route + client method + template + test from memory
 - [ ] Practiced the "3-minute orientation" narration out loud
 - [ ] Have 2-3 clarifying questions ready for any feature ask
