@@ -478,6 +478,171 @@ new codebase's HTMX-ready setup.
 
 ---
 
+## Description Disclosure Patterns
+
+Two progressive enhancement patterns for "Read more / Show less" descriptions on
+listing cards. Both build on native `<details>` — they differ in how much they
+rely on JavaScript.
+
+### Pattern 1 — JS label swap (dynamic trigger text)
+
+The `<summary>` is always visible. Its text updates to reflect the open/closed
+state. A `toggle` event listener reads `data-*` attributes to know what label
+to display.
+
+```html
+<article>
+  <h2>Fender American Professional II Stratocaster</h2>
+
+  <p>
+    A versatile modern Strat with V-Mod pickups, a comfortable neck profile,
+    and classic Fender switching.
+  </p>
+
+  <details data-description-disclosure>
+    <summary data-closed-label="Read full description" data-open-label="Show less">
+      Read full description
+    </summary>
+
+    <div>
+      <p>
+        This guitar expands on the classic Stratocaster design with updated
+        electronics, improved playability, and a more refined neck heel for
+        upper-fret access.
+      </p>
+
+      <p>
+        It is especially useful for players who want traditional Fender tones
+        but need a more modern, stable, gig-ready instrument.
+      </p>
+    </div>
+  </details>
+</article>
+```
+
+```javascript
+function enhanceDescriptionDisclosures(root = document) {
+  root.querySelectorAll("[data-description-disclosure]").forEach((details) => {
+    const summary = details.querySelector("summary");
+    if (!summary) return;
+
+    const closedLabel =
+      summary.dataset.closedLabel ||
+      summary.dataset.labelClosed ||
+      "Read full description";
+
+    const openLabel =
+      summary.dataset.openLabel ||
+      summary.dataset.labelOpen ||
+      "Show less";
+
+    const syncLabel = () => {
+      summary.textContent = details.open ? openLabel : closedLabel;
+    };
+
+    syncLabel();
+    details.addEventListener("toggle", syncLabel);
+  });
+}
+
+enhanceDescriptionDisclosures();
+```
+
+**When to use:** The summary trigger is always present and accessible with no
+extra markup. Simple and works even without CSS support.
+
+### Pattern 2 — CSS visibility swap (summary ↔ close button)
+
+The `<summary>` is only visible when the `<details>` is **closed**. When open,
+it hides via CSS and a dedicated "Show less" button inside the content takes
+over. The two triggers never appear at the same time.
+
+```html
+<article>
+  <h2>Fender American Professional II Stratocaster</h2>
+
+  <p>
+    A versatile modern Strat with V-Mod pickups, a comfortable neck profile,
+    and classic Fender switching.
+  </p>
+
+  <details data-description-disclosure>
+    <summary>Read full description</summary>
+
+    <div>
+      <p>
+        This guitar expands on the classic Stratocaster design with updated
+        electronics, improved playability, and a more refined neck heel for
+        upper-fret access.
+      </p>
+
+      <p>
+        It is especially useful for players who want traditional Fender tones
+        but need a more modern, stable, gig-ready instrument.
+      </p>
+
+      <!-- Only visible when open; hides the summary above -->
+      <button type="button" class="secondary outline" data-close-disclosure>
+        Show less
+      </button>
+    </div>
+  </details>
+</article>
+```
+
+```css
+/* Hide summary while open — the close button inside takes over */
+details[data-description-disclosure][open] > summary {
+  display: none;
+}
+
+/* Hide the close button while closed — summary is the trigger */
+details[data-description-disclosure]:not([open]) [data-close-disclosure] {
+  display: none;
+}
+```
+
+```javascript
+function enhanceDescriptionDisclosures(root = document) {
+  root.querySelectorAll("[data-description-disclosure]").forEach((details) => {
+    details.querySelectorAll("[data-close-disclosure]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        details.removeAttribute("open");
+      });
+    });
+  });
+}
+
+enhanceDescriptionDisclosures();
+```
+
+**How it works:**
+
+- `details[open] > summary { display: none }` — CSS hides the `<summary>` the
+  moment the `<details>` opens; no JS needed for this half.
+- `details:not([open]) [data-close-disclosure] { display: none }` — CSS hides
+  the close button when closed; again, no JS.
+- The single JS listener just calls `details.removeAttribute("open")` when the
+  close button is clicked, since a button inside the content cannot close
+  `<details>` natively.
+
+**When to use:** When you want the trigger to visually disappear once the
+content is revealed — for example, a "Read full description" link that should
+not be visible alongside the description it reveals.
+
+### Side-by-side comparison
+
+| | Pattern 1 (label swap) | Pattern 2 (visibility swap) |
+|---|---|---|
+| Summary always visible | Yes | Only when closed |
+| Close button inside content | No | Yes |
+| Label logic | JS (`toggle` event) | CSS (`details[open]` selector) |
+| JS required | Yes (label sync) | Yes (close button only) |
+| Works without CSS | Yes (labels still update) | Partially (summary always visible) |
+| Extra HTML | `data-*` attributes on summary | `<button data-close-disclosure>` in content |
+
+---
+
 ## Improvements Worth Mentioning In The Interview
 
 A short list of Pico-aware suggestions you can make if asked "what would you

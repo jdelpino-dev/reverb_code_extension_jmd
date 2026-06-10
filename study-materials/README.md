@@ -40,6 +40,7 @@ The interview format is: **Read code → Explain architecture → Implement feat
 | 16 | [16-new-codebase-stack-guide.md](16-new-codebase-stack-guide.md) | App factory, Blueprints, httpx, Pico CSS v2, HTMX, uv, ruff, new test patterns |
 | 17 | [17-pico-css-audit.md](17-pico-css-audit.md) | Audit of how Pico is actually used in the codebase: correct, redundant, missing, mixed |
 | 18 | [18-pico-css-guide.md](18-pico-css-guide.md) | Pico v2 toolkit: semantic defaults, utility classes, custom properties, progressive disclosure patterns |
+| 19 | [19-data-attributes-and-dataset.md](19-data-attributes-and-dataset.md) | `data-*` attributes & `.dataset` API: behavior hooks, config, naming conventions for vanilla JS enhancements |
 
 ## Pre-Interview Checklist
 
