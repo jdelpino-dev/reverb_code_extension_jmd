@@ -843,6 +843,23 @@ Response Size: ~22,398 bytes (~22 KB) for 5 listings
 - **This is a search/browse endpoint, not a bulk export endpoint.** Reverb's docs describe the API as tooling for shop integrations and automations, not full-marketplace harvesting.
 - **Anti-scraping protection.** The cap limits full-catalog extraction (price intelligence, seller cloning, AI training datasets, etc.).
 
+#### Per-Page Cap: `per_page` is Silently Clamped to 50
+
+In addition to the `total_pages` cap, the `per_page` query parameter is **silently clamped to a maximum of 50**. The server does not return an error or warning when a higher value is requested — it just returns 50 items and the response's `per_page` field reflects the requested value, not the effective one.
+
+Probe results against `/api/listings/all?page=1` (2026-06-12):
+
+| Requested `per_page` | Listings returned | `total_pages` |
+|----------------------|-------------------|----------------|
+| 25                   | 25                | 50             |
+| 50                   | 50                | 50             |
+| 51                   | 50                | 50             |
+| 75                   | 50                | 50             |
+| 100                  | 50                | 50             |
+| 200                  | 50                | 50             |
+
+**Combined effect of both caps:** The maximum number of listings reachable from any single query is **50 × 50 = 2,500**, regardless of how large `total` is (~2.6M at the time of probing). Reaching listings beyond this window requires query partitioning, not larger pages or deeper pagination.
+
 #### Reaching Listings Beyond the Cap: Query Partitioning
 
 The correct strategy is to narrow the search rather than paginate deeper. The cap applies per query, so filtered queries expose different windows:
