@@ -1,0 +1,30 @@
+<nav>
+  <ul>
+    <li>
+      <a href="{{ url_for('categories.index') }}" class="nav-logo-link">
+        <svg
+          width="32"
+          height="32"
+          viewBox="0 0 32 32"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          class="nav-logo-svg"
+        >
+          <rect x="4" y="8" width="10" height="16" rx="2"
+            stroke="currentColor" stroke-width="2" fill="none"/>
+          <rect x="18" y="8" width="10" height="16" rx="2"
+            stroke="currentColor" stroke-width="2" fill="none"/>
+          <circle cx="9" cy="13" r="2" fill="currentColor"/>
+          <circle cx="23" cy="13" r="2" fill="currentColor"/>
+          <path d="M9 18 L9 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M23 18 L23 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Gear Garage
+      </a>
+    </li>
+  </ul>
+  <ul>
+    <li><a href="{{ url_for('categories.index') }}">Categories</a></li>
+    <li><a href="{{ url_for('listings.index') }}">Listings</a></li>
+  </ul>
+</nav>

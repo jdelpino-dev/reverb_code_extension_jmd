@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block title %}Reverb Listings{% endblock %}
+
+{% block content %}
+<section class="examples-hero">
+  <h1>Listings</h1>
+  <p>Browse the latest musical gear</p>
+</section>
+
+{% if listings %}
+  <div class="listings-grid">
+    {% for listing in listings %}
+      <article class="listing-card">
+        {% set photo_url = listing.get("photos", [{}])[0].get("_links", {}).get("thumbnail", {}).get("href") %}
+        {% if photo_url %}
+          <img src="{{ photo_url }}" alt="{{ listing['title'] }}">
+        {% endif %}
+        <b>{{ listing["title"] }}</b>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p>No listings available at this time.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+{% block title %}Category Search{% endblock %}
+
+{% block content %}
+<section class="search-hero">
+  <h1>Category Search</h1>
+  <p>Search for musical gear categories</p>
+</section>
+
+<div class="search-form">
+  <form method="GET" action="{{ url_for('categories.index') }}">
+    <input
+      type="text"
+      name="search"
+      value="{{ search_term }}"
+      placeholder="e.g., guitar, drums, keyboards..."
+      autofocus
+    >
+    <input type="submit" value="Search">
+  </form>
+</div>
+
+{% if search_term %}
+  {% if categories %}
+    <div class="categories-list">
+      {% for category in categories %}
+        <article class="category-card">
+          <strong>{{ category["full_name"] }}</strong>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <p>No categories found matching "{{ search_term }}"</p>
+      <p><small>Try a different search term</small></p>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}
