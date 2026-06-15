@@ -658,9 +658,29 @@ Define **SLIs** (what you measure), **SLOs** (targets), and **error budgets** (a
 
 ---
 
+### 40. The Optimization Ladder (Order Before Sharding)
+
+The order isn't arbitrary — **each phase fixes a different bottleneck**, so apply the one your measurement points to: multi-AZ is availability; Redis, replicas, and the CDN are read scaling; partitioning is large-table maintainability; sharding is exceeding a single primary. Introduce each only when a measured bottleneck justifies the complexity.
+
+- **Phase 0 — Measure the bottleneck.** p99, slow-query log, cache hit rate, replica lag, connection counts (§38). Never optimize on a hunch.
+- **Phase 1 — Eliminate inefficiency.** Better queries, better schema, better indexes — the cheapest wins, no new infrastructure.
+- **Phase 2 — Scale up.** Vertical scaling (a bigger box) + connection pooling (§34), before adding moving parts.
+- **Phase 3 — Build high availability.** Multi-AZ database and multi-AZ web tier (§16) — availability, not throughput.
+- **Phase 4 — Scale the read path.** Redis (§7), read replicas (§11), CDN (§8) — where most read-heavy systems win biggest.
+- **Phase 5 — Offload specialized workloads.** Analytics, search (§20), reporting — off the OLTP hot path onto purpose-built stores.
+- **Phase 6 — Manage large tables.** Partitioning — range-by-time for append-only data, hash-by-key otherwise (§10).
+- **Phase 7 — Scale beyond a single primary.** Sharding — only when writes or storage exceed one node (§12).
+- **Phase 8 — Global scale & disaster recovery.** Multi-region (§16) and PITR (§17) — the most complex, so last.
+
+> **Sharding is Phase 7 — a near-last resort.** Most systems ride Phases 1–6 (especially Phase 4) to tens or hundreds of millions of users without ever sharding. Reach for it only when one primary's writes or storage are genuinely exhausted — not at a user-count milestone (§12).
+
+This is the principled, bottleneck-ordered version of the progression in §10 and the scaling ladder in §21.
+
+---
+
 ## Part III — The Big Picture
 
-### 40. The One-Sentence Summary
+### 41. The One-Sentence Summary
 
 > Use cheap compute, storage, and caching to avoid expensive data movement, network round trips, and distributed coordination.
 
