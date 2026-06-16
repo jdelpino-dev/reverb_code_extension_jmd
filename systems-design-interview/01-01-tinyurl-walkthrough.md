@@ -47,6 +47,7 @@ A complementary principle explains *why* every tool below works:
     - [Why this API shape](#why-this-api-shape)
   - [3. Data model](#3-data-model)
     - [Why this data model](#why-this-data-model)
+    - [URL normalization policy (foundational)](#url-normalization-policy-foundational)
   - [4. Short-code generation](#4-short-code-generation)
     - [Why Base62 and a sequence](#why-base62-and-a-sequence)
   - [5. Back-of-the-envelope toolkit](#5-back-of-the-envelope-toolkit)
@@ -60,7 +61,8 @@ A complementary principle explains *why* every tool below works:
   - [7. Scenario B: 1M to 10M DAU](#7-scenario-b-1m-to-10m-dau)
     - [7.1 Starting point: 1M DAU](#71-starting-point-1m-dau)
     - [7.2 Scaling to 10M DAU](#72-scaling-to-10m-dau)
-      - [Why a CDN](#why-a-cdn)
+      - [Zipfian workload math (why CDN+Redis is the dominant lever)](#zipfian-workload-math-why-cdnredis-is-the-dominant-lever)
+      - [Why CDN refinement matters at 10M](#why-cdn-refinement-matters-at-10m)
       - [Edge-caching a redirect: mechanics and configuration](#edge-caching-a-redirect-mechanics-and-configuration)
       - [Why read replicas, and the consistency catch](#why-read-replicas-and-the-consistency-catch)
       - [Read-after-write consistency: the complete strategy set](#read-after-write-consistency-the-complete-strategy-set)
@@ -84,6 +86,14 @@ A complementary principle explains *why* every tool below works:
     - [Final addendum summary](#final-addendum-summary)
   - [15. Decision rationale cheat sheet](#15-decision-rationale-cheat-sheet)
   - [16. One-page cheat sheet](#16-one-page-cheat-sheet)
+  - [17. Advanced feature: branded / custom domains](#17-advanced-feature-branded--custom-domains)
+    - [Domains as first-class resources](#domains-as-first-class-resources)
+    - [Hostname-aware redirect lookup](#hostname-aware-redirect-lookup)
+    - [Domain onboarding flow](#domain-onboarding-flow)
+    - [API surface (deferred from section 2)](#api-surface-deferred-from-section-2)
+    - [Cache, CDN, and purge implications](#cache-cdn-and-purge-implications)
+    - [Security and abuse considerations](#security-and-abuse-considerations)
+    - [Why this stays out of the core](#why-this-stays-out-of-the-core)
 
 ## 0. Opening move: clarify requirements first
 
@@ -100,6 +110,16 @@ Then ask targeted questions, grouped by category.
 - **Functional scope:** "Do users only create and resolve short URLs, or do we
   also need custom aliases, expiration, deletion, editing, user accounts,
   analytics, private links, or campaign attribution?"
+- **Generated links versus aliases:** "Do we distinguish a *canonical generated
+  link* (system-minted, immutable, one per destination) from *aliases*
+  (human-managed, many-to-one, marketing-friendly)? My default is yes —
+  generated links are deduplicated by the destination URL so creation is
+  naturally idempotent, and aliases are a separate mutable surface on top."
+- **URL normalization policy:** "How aggressively should we normalize the
+  destination URL before deduping? My default is *conservative*: lowercase
+  host, drop default ports, normalize encoding, and otherwise preserve query
+  parameters, fragments, casing in the path, and the scheme. UTM/campaign
+  variants should be treated as different destinations, not collapsed."
 - **Redirect behavior:** "Should redirects be permanent or temporary? My
   default is `302`, because it preserves analytics, attribution,
   experimentation, and destination control. I'd reserve `301` for truly
@@ -113,6 +133,11 @@ Then ask targeted questions, grouped by category.
 - **Security and abuse:** "Are these public marketing/product links, or can
   they point to sensitive resources? If sensitive, the short code can't be the
   only security mechanism; we'd need auth, authorization, and expiration."
+- **Branded/custom domains (advanced scope):** "Do customers bring their own
+  domains (e.g. `go.brand.com` in addition to `rvb.ly`)? If yes, the lookup key
+  becomes `(hostname, short_code)` rather than just `short_code`, and we need a
+  domain onboarding/verification flow. I treat this as an advanced feature
+  layered on top of the core design rather than baked in."
 
 ### Why clarify before architecting
 
@@ -186,6 +211,25 @@ The key insight, stated explicitly:
 > "Redirects dominate writes, so I scale the read path first. URL creation is
 > usually modest; redirects can become very large and latency-sensitive."
 
+A second conceptual split worth saying out loud, because it ripples through
+the API, data model, caching, and analytics:
+
+- **Generated (canonical) links** are *system-minted*, **deduplicated by
+  destination URL**, and treated as **immutable**. `POST /urls` for the same
+  scoped destination returns the same short code, so creation is naturally
+  idempotent and the canonical identity of a destination is stable.
+- **Aliases** are *human-managed*, **many-to-one** against a generated link
+  (e.g. `email-sale`, `ig-sale`, `sms-sale` all pointing to the same product),
+  and **mutable**. They are a separate product surface for campaigns and
+  marketing, not a different shape of the same primitive.
+
+This split is what makes most of the design decisions later coherent:
+
+- caching and CDN invalidation are dramatically easier when canonical generated
+  links don't change destination,
+- mutation/purge concerns concentrate at the alias layer, and
+- analytics attribution is stable because the canonical identity doesn't move.
+
 Conversion rules you'll reuse all interview:
 
 - `daily redirects / 86,400` = average read QPS
@@ -196,28 +240,14 @@ Conversion rules you'll reuse all interview:
 
 ## 2. API design
 
-Keep the surface tiny. Three endpoints cover everything.
+Keep the surface tiny but complete. The redirect is the single hot endpoint;
+everything else is owner-side management. The core surface splits into two
+groups:
 
-Create a short URL:
+- **Resolve** — the one public, latency-sensitive endpoint.
+- **Manage** — owner-facing CRUD over generated links and aliases.
 
-```http
-POST /urls
-Content-Type: application/json
-
-{
-  "longUrl": "https://reverb.com/item/12345",
-  "customAlias": null,
-  "expiresAt": null
-}
-```
-
-```json
-{
-  "shortUrl": "https://rvb.ly/X7mP9Q"
-}
-```
-
-Resolve and redirect:
+Resolve and redirect (the hot path):
 
 ```http
 GET /X7mP9Q
@@ -226,11 +256,127 @@ GET /X7mP9Q
 Location: https://reverb.com/item/12345
 ```
 
-Fetch analytics (deliberately off the critical redirect path):
+Create a generated, canonical short URL:
+
+```http
+POST /urls
+Content-Type: application/json
+
+{
+  "longUrl": "https://reverb.com/item/12345",
+  "expiresAt": null
+}
+```
+
+```json
+{
+  "shortUrl": "https://rvb.ly/X7mP9Q",
+  "code": "X7mP9Q",
+  "longUrl": "https://reverb.com/item/12345",
+  "normalizedUrl": "https://reverb.com/item/12345",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "reused": false
+}
+```
+
+- The response carries the full canonical mapping, so the UI never has to
+  re-read to render it. The cheapest read-after-write fix is to eliminate the
+  immediate follow-up read.
+- A second `POST /urls` for the same scoped normalized destination returns the
+  **same** `code` with `reused: true`. Creation is naturally idempotent on the
+  URL itself.
+- `Idempotency-Key` is optional, used only for network-retry safety. It protects
+  against a partial create that did not yet land in the database; the primary
+  dedupe key is the normalized destination URL.
+
+List my links (cursor-paginated):
+
+```http
+GET /urls?limit=50&cursor=eyJjcmVhdGVkX2F0IjoiMjAyNS0w...
+```
+
+```json
+{
+  "items": [
+    {
+      "code": "X7mP9Q",
+      "shortUrl": "https://rvb.ly/X7mP9Q",
+      "longUrl": "https://reverb.com/item/12345",
+      "createdAt": "2025-01-01T00:00:00Z",
+      "expiresAt": null,
+      "disabled": false,
+      "aliasCount": 3
+    }
+  ],
+  "nextCursor": "eyJjcmVhdGVkX2F0IjoiMjAyNC0xMi0z..."
+}
+```
+
+- Uses a keyset cursor (`WHERE created_at < ? AND owner_id = ?`), not `OFFSET`.
+- Supports filters (`?q=`, `?status=`, and later `?domain=`) without changing
+  the cursoring scheme.
+
+Fetch a single link's metadata (owner-side, not redirect):
+
+```http
+GET /urls/{code}
+```
+
+- Returns destination, expiry, status, alias count, and recent click totals —
+  whatever the management UI needs without scraping the redirect endpoint.
+
+Mutate a generated link's lifecycle metadata:
+
+```http
+PATCH /urls/{code}
+Content-Type: application/json
+
+{
+  "expiresAt": "2025-12-31T23:59:59Z",
+  "disabled": false
+}
+```
+
+- Generated canonical links are immutable in destination; the writable surface
+  here is lifecycle metadata such as expiry, disable, or owner notes.
+- Retargeting a destination is an alias operation, not a canonical-link
+  operation.
+- Every successful mutation performs a write-through cache update on Redis and,
+  if the redirect may be edge-cached, an explicit CDN purge.
+
+Soft-delete a link:
+
+```http
+DELETE /urls/{code}
+```
+
+- Sets `deleted_at`; resolution starts returning `410 Gone` (or a configured
+  fallback) instead of the destination.
+- Idempotent: repeated `DELETE` returns the same `204` and does not error.
+
+Aliases, the human-managed surface on top of canonical links:
+
+```http
+POST   /urls/{code}/aliases        # attach a new alias
+GET    /urls/{code}/aliases        # list aliases for a generated link
+PATCH  /aliases/{aliasCode}        # rename, retarget, disable
+DELETE /aliases/{aliasCode}        # remove the alias
+```
+
+- Aliases live in their own table and namespace (see section 3), but resolve
+  through the same `GET /{code}` redirect path.
+- Aliases are explicitly many-to-one: several aliases can point at the same
+  canonical generated link to support campaign/channel naming (`email-sale`,
+  `ig-sale`, `sms-sale`).
+
+Fetch click analytics for a code (deliberately off the critical redirect path):
 
 ```http
 GET /urls/{code}/analytics
 ```
+
+Branded/custom domain endpoints (`POST /domains`, `POST /domains/{id}/verify`,
+etc.) are deferred to section 17 so they do not pollute the core API surface.
 
 ### Why this API shape
 
@@ -239,36 +385,78 @@ GET /urls/{code}/analytics
   returns a status code plus a `Location` header rather than proxying content.
 - **Analytics is a separate endpoint** so it never sits in the hot redirect
   path. This foreshadows the async analytics decision in section 9.
-- **`POST /urls` takes an idempotency key.** Creation is the only write, and a
-  retried request (flaky network, client retry) shouldn't mint a second code
-  for the same intent. An `Idempotency-Key` header lets the server dedupe and
-  return the original short URL.
-- **"List my links" uses cursor/keyset pagination, not `OFFSET`.** `OFFSET`
-  scans and discards rows and degrades on deep pages; a keyset cursor
-  (`WHERE created_at < ?`) stays fast at any depth.
+- **Natural idempotency by normalized URL is the primary dedupe.** A repeated
+  `POST /urls` for the same scoped destination returns the existing code, so a
+  flaky client does not accidentally mint duplicate canonical links. The
+  `Idempotency-Key` header is a secondary safety net for the narrow case where
+  a previous create did not reach the database at all.
+- **Generated links are immutable in destination; aliases are the mutable
+  surface.** `PATCH /urls/{code}` covers lifecycle (expiry, disable). Anything
+  that retargets goes through the alias endpoints. This keeps caching, CDN
+  invalidation, and analytics attribution tractable.
+- **`GET /urls` is its own endpoint, not a side-effect of the redirect.**
+  Management UIs need a list, but the redirect path must stay a single point
+  lookup. Listing uses cursor/keyset pagination (`WHERE created_at < ?`), not
+  `OFFSET`, so deep pages stay fast.
+- **`DELETE` is soft and idempotent.** Hard-deleting a link breaks any link
+  that was already shared; a soft delete plus `410 Gone` keeps the surface
+  honest while preserving analytics history.
 
 ## 3. Data model
 
 Start with the minimum that satisfies correctness, and say that you're doing so
-deliberately.
+deliberately. The core model has two tables: canonical generated links and
+human aliases. Branded-domain tables are deferred to section 17.
+
+Canonical generated links:
 
 ```sql
 CREATE TABLE urls (
-  id          BIGSERIAL PRIMARY KEY,
-  short_code  VARCHAR(12) UNIQUE NOT NULL,
-  long_url    TEXT NOT NULL,
-  user_id     BIGINT NULL,
-  created_at  TIMESTAMP NOT NULL,
-  expires_at  TIMESTAMP NULL,
-  deleted_at  TIMESTAMP NULL
+  id              BIGSERIAL PRIMARY KEY,
+  short_code      VARCHAR(12) NOT NULL,
+  long_url        TEXT NOT NULL,
+  normalized_url  TEXT NOT NULL,
+  owner_id        BIGINT NULL,
+  created_at      TIMESTAMP NOT NULL,
+  expires_at      TIMESTAMP NULL,
+  disabled_at     TIMESTAMP NULL,
+  deleted_at      TIMESTAMP NULL
 );
 ```
 
-Indexes:
+Indexes and constraints:
 
-- `UNIQUE(short_code)` for the redirect lookup and correctness
-- `INDEX(user_id, created_at)` for "list my links"
-- `INDEX(expires_at)` for expiry sweeps
+- `UNIQUE(short_code)` for the redirect lookup and global resolution correctness.
+- `UNIQUE(owner_id, normalized_url)` (partial: `WHERE deleted_at IS NULL`) for
+  per-owner dedupe of generated links. Two `POST /urls` calls with the same
+  scoped normalized destination return the same canonical short code; this is
+  the database guarantee that makes creation naturally idempotent on the URL.
+- `INDEX(owner_id, created_at)` for cursor-paginated `GET /urls`.
+- `INDEX(expires_at)` for expiry sweeps.
+
+Human aliases (the mutable surface on top of canonical links):
+
+```sql
+CREATE TABLE aliases (
+  id            BIGSERIAL PRIMARY KEY,
+  alias_code    VARCHAR(64) NOT NULL,
+  target_url_id BIGINT NOT NULL REFERENCES urls(id),
+  owner_id      BIGINT NULL,
+  created_at    TIMESTAMP NOT NULL,
+  expires_at    TIMESTAMP NULL,
+  disabled_at   TIMESTAMP NULL,
+  deleted_at    TIMESTAMP NULL
+);
+```
+
+Indexes and constraints:
+
+- `UNIQUE(alias_code)` so aliases share the same global resolution namespace as
+  generated codes. (Section 17 generalises this to `UNIQUE(domain_id,
+  alias_code)` once branded domains exist.)
+- `INDEX(target_url_id)` to list aliases attached to a generated link.
+- Many aliases can share one `target_url_id` (many-to-one), which is exactly the
+  campaign/channel pattern.
 
 Analytics events, while still small enough to live in Postgres:
 
@@ -288,19 +476,81 @@ time-partitioned tables (see sections 9 and 14).
 
 ### Why this data model
 
-- **A single `urls` table is the minimum that is correct.** Starting here
-  proves you don't reach for complexity reflexively.
+- **Two foundational tables, not one.** `urls` holds the canonical, immutable,
+  destination-deduped identity. `aliases` holds the mutable, many-to-one,
+  human-managed surface. Collapsing them into one table is what makes most
+  shortener designs incoherent about caching, invalidation, and analytics.
 - **`UNIQUE(short_code)` pushes correctness into the database.** Two long URLs
   mapping to the same code is silent data corruption: someone's link redirects
   to the wrong place. A database constraint enforces this atomically, instead
   of racy application-side checks.
+- **`UNIQUE(owner_id, normalized_url)` is the idempotency engine.** Natural
+  dedupe by the destination URL belongs in the database, not the application.
+  Per-owner scoping is deliberate: two different users posting the same URL
+  should get two different canonical short links because their analytics,
+  ownership, and lifecycle are independent. (Once branded domains exist, the
+  scope generalises to `(owner_id, domain_id, normalized_url)`; see section 17.)
+- **`normalized_url` is stored separately from `long_url`.** `long_url` is what
+  we redirect to (and what we show the user); `normalized_url` is what we
+  dedupe on. Storing both keeps the displayed URL faithful to the user's input
+  while letting uniqueness use the normalized form.
 - **Don't store `click_count` on the row.** It's the simplest V1 option, but it
   turns every redirect (a read) into a write on a hot row. Naming this tradeoff
   up front is exactly why analytics later moves to a queue.
-- **Soft delete (`deleted_at`) and `expires_at`** keep resolution logic simple
-  and auditable, and let expiry be a sweep rather than a destructive path.
+- **Soft delete (`deleted_at`), disable (`disabled_at`), and `expires_at`** keep
+  resolution logic simple and auditable, and let expiry be a sweep rather than
+  a destructive path. `disabled_at` is separate from `deleted_at` because
+  disabling is reversible and surfaces a `410 Gone`; deletion is the
+  end-of-life state.
+
+### URL normalization policy (foundational)
+
+Normalization is part of the core design because it defines what "the same
+URL" means for deduplication. The policy is intentionally **conservative** —
+normalize only what is provably safe, because the shortener cannot infer which
+bits of a URL are semantically meaningful to the destination.
+
+Safe to normalize (apply before computing `normalized_url`):
+
+- lowercase the host (DNS is case-insensitive),
+- remove the default port (`:80` for http, `:443` for https),
+- normalize percent-encoding (e.g. uppercase hex digits, drop unnecessary
+  encodings of unreserved characters),
+- collapse `//` runs inside the path (rare, but unambiguous).
+
+**Do not** normalize away:
+
+- query parameters of any kind — including `utm_*`, `gclid`, `fbclid`, `ref`,
+  `coupon`, `variant`, and experiment flags. The shortener cannot safely tell
+  which parameters are meaningful, and stripping them silently retargets
+  campaigns.
+- the URL fragment (`#…`) — single-page apps use it as routing state.
+- path casing — many backends treat `/Item/12345` and `/item/12345` as
+  different resources.
+- the scheme — do not auto-upgrade `http` to `https`; the destination may not
+  serve TLS at the same path.
+- trailing slashes — `/path` and `/path/` can be different resources.
+
+**UTM and campaign variants are different destinations.** Two URLs that differ
+only by `?utm_source=email` versus `?utm_source=instagram` produce two
+separate rows in `urls`, two separate canonical short codes, and (likely) two
+separate sets of aliases. They represent different campaign intent, so the
+idempotency engine treats them as different links by design.
+
+> "I normalize conservatively: lowercase host, drop default ports, normalize
+> encoding. I do not strip query parameters, force HTTPS, or touch path casing,
+> because the shortener can't safely guess which differences matter to the
+> destination. UTM variants are different destinations on purpose."
 
 ## 4. Short-code generation
+
+This section is about **canonical generated codes** (`short_code` in `urls`),
+which are immutable and deduped by destination. Human aliases live in a
+separate table (section 3) and follow a different lifecycle: they may be
+created, retargeted, disabled, or deleted by the owner, and the character
+policy below applies only to system-minted codes — alias codes are
+user-supplied strings (with their own validation: length, profanity, reserved
+prefixes, etc.).
 
 Recommended interview answer:
 
@@ -423,34 +673,64 @@ Math:
 Interpretation:
 
 > "This is small. Postgres handles this easily with proper indexes. I'll keep
-> the architecture deliberately simple."
+> the architecture deliberately simple — but a CDN and multi-AZ are foundational
+> from day one, not optimisations."
 
-Initial design:
+Initial design (AWS-first, but the same shape works on any cloud):
 
 ```mermaid
 flowchart TD
-  Client([Browser]) --> LB[Load balancer]
-  LB --> App1[App instance 1]
-  LB --> App2[App instance 2]
-  App1 --> PG[(Postgres primary)]
+  Client([Browser]) --> CDN[CDN / edge<br/>DNS · TLS · WAF · DDoS]
+  CDN --> LB[ALB across AZs]
+  LB --> App1[App instance · AZ-a]
+  LB --> App2[App instance · AZ-b]
+  App1 --> PG[(Postgres primary<br/>multi-AZ standby)]
   App2 --> PG
 ```
 
-Why two app instances even at trivially small scale:
+Why two app instances and multi-AZ Postgres even at trivially small scale:
 
-> "Not for throughput first, but for availability and safe deploys."
+> "Not for throughput first, but for availability and safe deploys. Multi-AZ
+> survives a zone failure or a routine maintenance event; a single-AZ database
+> is one fault away from a full outage."
+
+**CDN at 100K DAU is foundational, not optional.** It sits in front of the load
+balancer from day one and is then *refined* at every later scenario, never
+re-introduced.
+
+- The reason isn't origin offload — 120 peak read QPS does not stress the
+  origin. The reasons are **user-perceived latency for geographically
+  distributed users**, **managed DNS**, **TLS termination**, **WAF**, **DDoS
+  protection**, **bot mitigation**, and **operational simplicity**.
+- A redirect is the textbook cacheable response: a `302` plus a `Location`
+  header, no body. Even at this scale, edge hits give a measurable p99 win for
+  users far from the origin.
+- Picking the edge once and refining it later (rather than bolting it on at 10M
+  DAU) avoids re-platforming DNS, certificates, and abuse rules during a
+  scaling crunch.
+
+> "I'd consider introducing a CDN from the beginning, even around 100K DAU. Not
+> because the origin cannot handle the traffic, but because latency, geographic
+> distribution, TLS, DNS, and DDoS protection are already valuable. The CDN
+> solves user-to-origin latency years before it becomes a throughput
+> requirement."
 
 #### Why start with the boring architecture
 
-- `LB -> App -> Postgres` is correct, debuggable, and deployable on day one.
-  Kafka, microservices, and multi-region add operational surface area (more
-  failure modes, more on-call pages) for problems you don't yet have.
+- `CDN -> LB -> App -> Postgres` (multi-AZ) is correct, debuggable, and
+  deployable on day one. Kafka, microservices, and multi-region add operational
+  surface area (more failure modes, more on-call pages) for problems you don't
+  yet have.
 - **Premature distribution produces a "distributed monolith"** — all the
   complexity of microservices and none of the benefits. Starting simple says: I
   add complexity in response to measured pain, not anticipated glory.
+- **Multi-AZ before read replicas.** Availability is solved before throughput,
+  because a dead database hurts more than a busy one. Replicas come in section
+  7.2 when read volume actually demands them.
 - Modern Redis-class systems can serve roughly 100K simple GET/SET operations
   per second per core, so 120 peak lookups is nowhere near needing a complex
-  cache tier yet. That's exactly why you don't add one here.
+  cache tier yet. That's exactly why you don't add one here — Redis arrives in
+  section 6.2.
 
 ### 6.2 Growing to 1M DAU
 
@@ -469,52 +749,82 @@ Math:
 
 Interpretation:
 
-> "Still not enormous, but now redirect latency and protecting the database
-> start to matter."
+> "Still not enormous in QPS terms, but redirect **latency and p99 stability**
+> start to matter, and Postgres should stop being in the redirect hot path."
 
 First reach for the cheapest lever, and say so: **scale Postgres vertically** (a
 bigger instance) and confirm the indexes are right before adding new moving
 parts. Vertical scaling buys real headroom for almost no operational cost. Only
 once that's in hand do I add the next pieces:
 
-- Redis cache for `short_code -> long_url`
-- async queue for analytics
-- more app instances
+- **Redis as part of the baseline serving path** (not an optional optimisation)
+  for `short_code -> long_url` and `alias_code -> short_code`.
+- **PgBouncer** in front of Postgres, because stateless app fan-out exhausts
+  Postgres's few-hundred connection limit before it exhausts CPU or storage.
+- **Async queue for analytics** so the click stream never blocks the redirect.
+- **CDN refinement** — the CDN was already foundational at 100K DAU; here it
+  gets tighter cache rules per code, explicit purge on alias mutation, short
+  TTLs (60–300 s), and stricter origin `Cache-Control` headers.
+- More app instances behind the existing multi-AZ ALB.
 
-Redirect path with cache:
+Redirect path with cache (write-through on create, cache-aside on miss):
 
 ```mermaid
 sequenceDiagram
   participant B as Browser
+  participant CDN as CDN edge
   participant A as App
   participant R as Redis
   participant P as Postgres
   participant Q as Analytics queue
-  B->>A: GET /code
-  A->>R: lookup short_code
-  alt cache hit
-    R-->>A: long_url
-  else cache miss
-    A->>P: SELECT long_url
-    P-->>A: long_url
-    A->>R: populate cache
+  B->>CDN: GET /code
+  alt edge hit
+    CDN-->>B: 302 Location
+  else edge miss
+    CDN->>A: GET /code
+    A->>R: lookup short_code
+    alt cache hit
+      R-->>A: long_url
+    else cache miss
+      A->>P: SELECT long_url
+      P-->>A: long_url
+      A->>R: populate cache
+    end
+    A-->>CDN: 302 Location + Cache-Control
+    CDN-->>B: 302 Location
+    A->>Q: enqueue click event (async)
   end
-  A-->>B: 302 Location
-  A->>Q: enqueue click event (async)
 ```
 
 Architecture:
 
 ```mermaid
 flowchart TD
-  Client([Browser]) --> LB[Load balancer]
+  Client([Browser]) --> CDN[CDN / edge<br/>refined: per-code rules, purge]
+  CDN --> LB[ALB multi-AZ]
   LB --> App[Stateless app servers]
-  App -->|1. lookup| Redis[(Redis cache)]
-  App -->|2. on miss| PG[(Postgres primary)]
+  App -->|1. lookup| Redis[(Redis<br/>baseline serving layer)]
+  App -->|2. on miss| Pool[PgBouncer]
+  Pool --> PG[(Postgres primary<br/>multi-AZ)]
   App -->|async event| Queue[[Analytics queue]]
   Queue --> Workers[Analytics workers]
   Workers --> AStore[(Analytics store)]
 ```
+
+Write-through is now the **primary** read-after-write strategy, not a secondary
+fix:
+
+- **Create** — write Postgres, write Redis (`short_code -> long_url`), return
+  the canonical mapping in the response body. The creator's first click is a
+  Redis hit regardless of replica state.
+- **Alias mutation** (retarget, disable) — update Postgres, **overwrite Redis**
+  for the affected alias key, **purge the CDN** entry for that code (or its
+  cache tag). Redis can be overwritten in place; the CDN must be told.
+- **Generated canonical links are immutable**, so their cache entries almost
+  never need invalidation — invalidation work concentrates at the alias layer.
+- The short "read from primary" window (a recent-write timestamp on the
+  session) becomes a **backup** safeguard for dashboards and management views,
+  not the primary path. The redirect path almost always hits Redis or the CDN.
 
 #### Why Redis, specifically
 
@@ -542,6 +852,13 @@ flowchart TD
   wait), and **`stale-while-revalidate`** (serve the slightly stale mapping
   while one worker refreshes). Track **cache hit rate** as the health metric — a
   low hit rate adds a network hop for nothing.
+- **Redis is a p99 latency tool, not only a throughput tool.** Raw QPS at 1M DAU
+  does not on its own force a cache — a well-indexed Postgres can serve it.
+  What forces Redis is **tail latency**: at 70% DB load p99 starts rising, at
+  90% it explodes. Redis keeps Postgres comfortably off the redirect critical
+  path, so p99 stays flat even when traffic spikes. State this explicitly: the
+  point of Redis here is to keep the database **out** of the p99, not to handle
+  raw throughput.
 
 #### Why async analytics
 
@@ -566,8 +883,9 @@ flowchart TD
 
 ### 7.1 Starting point: 1M DAU
 
-Because we already know how this scales, start with Redis and async analytics
-baked in from day one.
+Because we already know how this scales, start with the CDN (foundational since
+100K DAU), Redis as part of the baseline serving layer, PgBouncer, and async
+analytics baked in from day one.
 
 Assumptions and math are identical to the end of Scenario A:
 
@@ -578,10 +896,12 @@ Assumptions and math are identical to the end of Scenario A:
 
 ```mermaid
 flowchart TD
-  Client([Browser]) --> LB[Load balancer]
+  Client([Browser]) --> CDN[CDN / edge]
+  CDN --> LB[ALB multi-AZ]
   LB --> App[Stateless app servers]
-  App --> Redis[(Redis)]
-  App --> PG[(Postgres primary)]
+  App --> Redis[(Redis<br/>baseline serving)]
+  App --> Pool[PgBouncer]
+  Pool --> PG[(Postgres primary<br/>multi-AZ)]
   App -->|async| Queue[[Queue]]
   Queue --> Workers[Workers]
   Workers --> AStore[(Analytics storage)]
@@ -605,42 +925,88 @@ Math:
 Interpretation:
 
 > "Still read-heavy; writes aren't scary. The real concerns are redirect reads,
-> hot links, cache behavior, analytics volume, and abuse prevention."
+> hot links, cache behavior, analytics volume, and abuse prevention. Redis and
+> the CDN are the **serving layers**; Postgres remains the source of truth, off
+> the redirect hot path."
 
-At 10M DAU, add:
+At 10M DAU, **refine** (don't introduce) the foundations and add a few new
+pieces:
 
-- Redis cluster or managed Redis
-- CDN/edge caching for hot public redirects
-- read replicas for non-critical reads
-- partitioned analytics
-- WAF and rate limiting
-- a connection pooler (**PgBouncer**) in front of Postgres — many stateless app
-  instances each opening connections will exhaust Postgres's few-hundred limit
+- **Refine the CDN** — it has been foundational since 100K DAU. At 10M it gets
+  higher cache-hit targets (95%+ for hot codes), per-code cache tags for
+  surgical purge on alias mutation, edge rate limiting and abuse rules, edge
+  bot mitigation, and optionally **edge functions** resolving codes against an
+  edge KV so cache misses also stay off the origin.
+- **Refine Redis** — move from a single managed Redis to a Redis cluster or a
+  larger managed tier with multi-AZ replication.
+- **Add read replicas** (now, not earlier) for non-critical reads such as the
+  management UI (`GET /urls`, `GET /urls/{code}`); the redirect path should
+  rarely touch the database at all.
+- **Move analytics off OLTP entirely** — the click stream goes to a queue/stream
+  and a partitioned analytics store or warehouse (see sections 8, 9, and 14).
+- **WAF, abuse rules, and platform-level rate limiting** at the edge in addition
+  to app-tier token-bucket limits (see section 10).
+
+PgBouncer is already in place from 1M DAU, so it doesn't appear here as a new
+component — it's part of the baseline.
 
 ```mermaid
 flowchart TD
-  Client([Browser]) --> CDN[CDN / Edge]
-  CDN --> LB[Load balancer]
+  Client([Browser]) --> CDN[CDN / edge<br/>refined: 95% hit, cache tags,<br/>WAF, edge rate limit, edge KV]
+  CDN --> LB[ALB multi-AZ]
   LB --> App[Stateless redirect service]
-  App --> RedisC[(Redis cluster)]
-  App --> PG[(Postgres primary)]
-  PG --> Replicas[(Read replicas)]
+  App --> RedisC[(Redis cluster<br/>multi-AZ)]
+  App --> Pool[PgBouncer]
+  Pool --> PG[(Postgres primary<br/>source of truth)]
+  PG --> Replicas[(Read replicas<br/>mgmt UI only)]
   App -->|async| Stream[[Queue / stream]]
   Stream --> Workers[Workers]
   Workers --> PA[(Partitioned analytics store)]
 ```
 
-#### Why a CDN
+**Target traffic split for the redirect path:**
 
-- A CDN caches the redirect at edge PoPs near users. If a link goes viral, the
-  hot key is absorbed at the edge instead of hammering your app and Redis.
-- It's the natural extension of caching: **Redis caches near your app, a CDN
-  caches near the user** — same idea (cache hot, immutable data), pushed one
-  layer outward.
+- ~95% served at the CDN edge (no origin round trip),
+- most remaining traffic served from Redis,
+- only a small residue of cache misses reaches Postgres,
+- Postgres primarily serves **writes** (creation, alias mutation, lifecycle)
+  and an occasional cache miss — not routine redirects.
+
+#### Zipfian workload math (why CDN+Redis is the dominant lever)
+
+With ~11,570 peak redirect QPS and Zipfian traffic concentration, a small cache
+absorbs most reads:
+
+| Setup | Peak DB / origin pressure |
+| --- | --- |
+| No cache | ~11,570 DB lookups/sec |
+| Redis only (98% hit) | ~231 DB lookups/sec |
+| CDN only (95% edge hit) | ~579 origin requests/sec |
+| **CDN + Redis (95% edge × 98% Redis)** | **~12 DB lookups/sec** |
+
+The CDN+Redis combination reduces Postgres redirect lookups by roughly **three
+orders of magnitude** versus no cache, which is why the read path is effectively
+free at 10M DAU while Postgres stays unbothered.
+
+> "At 10M DAU, Postgres should primarily serve writes and cache misses, not
+> routine redirects. The CDN is foundational from 100K DAU; here it is refined
+> with cache tags, edge rate limiting, and optional edge resolution. Redis and
+> the CDN are serving layers; Postgres remains the system of record."
+
+#### Why CDN refinement matters at 10M
+
+- A CDN at this scale is **more than a cache**. It also delivers TLS, DNS, WAF,
+  DDoS mitigation, edge rate limiting, bot mitigation, and edge compute. At 10M
+  DAU the CDN is effectively the security and edge-infrastructure layer for the
+  product.
+- If a link goes viral, the hot key is absorbed at the edge instead of hammering
+  your app and Redis. Same idea as Redis (cache hot, immutable data), pushed one
+  layer outward closer to the user.
 - The catch (ties back to redirect semantics): edge caching pulls clicks away
   from your origin, which undercuts `302`-based analytics. The honest answer is
   to cache aggressively only where analytics don't matter, keep TTLs
-  controlled, or reconstruct counts from CDN logs.
+  controlled, use per-code cache tags so disable/retarget purge surgically, or
+  reconstruct counts from CDN logs.
 - **Edge functions take this further than caching.** Redirect resolution is a
   textbook edge-compute use case (Cloudflare Workers, Lambda@Edge): run the
   `short_code -> long_url` lookup at the edge against a replicated edge KV
@@ -650,9 +1016,12 @@ flowchart TD
 
 #### Edge-caching a redirect: mechanics and configuration
 
-The "Why a CDN" point above is the concept; here is *exactly* how the edge
-serves a redirect and how you'd configure it — the concreteness that separates
-"add a CDN" hand-waving from a real answer.
+The "Why CDN refinement matters at 10M" point above is the concept; here is
+*exactly* how the edge serves a redirect and how you'd configure it — the
+concreteness that separates "add a CDN" hand-waving from a real answer. The
+mechanics here apply equally to the foundational CDN at 100K DAU; at 10M DAU
+they're just tuned more aggressively (higher hit targets, cache tags, edge
+rules).
 
 **A redirect is cacheable because it's just an HTTP response.** There's no body
 to vary — only a status line and a `Location` header:
@@ -821,6 +1190,22 @@ Storage sanity check (a common follow-up):
 - Click events: `100M/day × ~200 bytes ≈ 20 GB/day ≈ 7.3 TB/year` — this is why
   analytics needs partitioning and rollups long before the URL table does.
 
+**URL mappings and click events scale very differently — treat them as separate
+problems.** Conflating them is what makes most TinyURL discussions reach for
+sharding too early.
+
+| Dataset | Shape | Growth | Access pattern | Scaling lever |
+| --- | --- | --- | --- | --- |
+| `urls` (mappings) | Small rows, point lookups | Slow (linear in new links) | Read-heavy, mostly cache hits | Cache + replicas; partition rarely; shard almost never |
+| `click_events` | Append-only, large volume | Fast (linear in redirects) | Write-heavy, range scans | Queue/stream + time-partitioning + retention; eventually a separate analytics store |
+
+The first table you'll partition is `click_events`, not `urls`. The mapping
+table may stay on a single Postgres node forever; the click stream almost
+certainly will not.
+
+> "The click stream becomes the scale problem before the URL table does. I'd
+> partition analytics years before I'd shard URL mappings."
+
 Latency and observability targets:
 
 - **Design to a p99, not an average.** "Redirects are fast" should be a concrete
@@ -835,12 +1220,23 @@ Latency and observability targets:
 ## 9. Analytics design
 
 Evolve analytics with scale rather than designing the final form up front.
+Analytics is the dataset that forces structural change first, so treat its
+evolution as a first-class part of the design.
 
-- **Small scale:** a `click_events` table in Postgres.
+- **100K DAU:** a `click_events` table in Postgres, written synchronously
+  in the simplest case. Volume is modest enough that this is fine.
 - **1M DAU:** queue plus workers writing to Postgres or a dedicated analytics
-  store.
-- **10M DAU:** an append-only event stream, partitioned by day/hour, with
-  aggregate rollups, fully separated from redirect serving.
+  store. Redirects never block on the analytics write.
+- **10M DAU and beyond:** an append-only **event stream** (Kafka, Kinesis, or
+  equivalent) flowing into a partitioned analytics store or warehouse, with
+  aggregate rollups. At this point analytics is **fully separated from OLTP** —
+  no shared database, no shared partitions, no shared backup strategy. The URL
+  mappings stay on Postgres; the click stream lives in its own world.
+
+> "At 10M DAU the click stream is its own scaling problem. It doesn't belong on
+> the same Postgres instance that resolves redirects — the workload shapes are
+> opposite (append-heavy versus point-lookup), and the retention/partitioning
+> rules are different."
 
 Delivery semantics matter once a queue is involved: most queues are
 **at-least-once**, so workers must be **idempotent** — dedupe on a click-event
@@ -875,6 +1271,18 @@ Product framing for this role:
 A URL shortener is an abuse magnet: it's literally a tool for hiding a
 destination, which is what phishers and malware distributors want. Treat abuse
 controls as core, not polish.
+
+**Where the security focus lives at each scale matters more than the list of
+controls.** At small scale the security worries are correctness and basic
+hygiene. At 10M DAU the dominant security problems are **abuse, enumeration,
+phishing, bot traffic, and DDoS** — not exotic distributed-transaction or
+consistency problems. URL shorteners become abuse magnets long before they
+become write-scaling problems, so by 10M DAU the edge (WAF, bot mitigation,
+rate limiting, abuse rules) and the destination scanner are doing more work
+than the database.
+
+> "At 10M DAU I'd expect abuse mitigation to become a bigger concern than
+> database writes. The CDN/edge is part of the security boundary."
 
 Layered defenses:
 
@@ -937,6 +1345,11 @@ gracefully, protect the redirect.**
   low-value analytics events depending on business priority.
 - **CDN issue:** bypass to the origin load balancer; higher load but still
   functional.
+- **Stale CDN entry after alias mutation:** Redis is overwritten in place by
+  the write-through update, but the **CDN is not write-through** — it must be
+  told. Pair every alias mutation/disable with an explicit purge (per-code
+  cache tag), keep edge TTLs short (60–300 s), and treat "old destination still
+  serves from edge" as a known operational failure mode rather than a bug.
 - **Data disaster (bad migration, accidental delete, app bug):** this is *not*
   an availability failure — a replica or standby faithfully copies the bad
   `DELETE`. The fix is **PITR (point-in-time recovery)**, built from backups
@@ -960,16 +1373,22 @@ The line that lands:
 
 Say this to wrap the core design:
 
-> "Starting at 100K DAU, I'd keep it simple: stateless app servers and
-> Postgres, with good indexes and a clean data model. Growing to 1M DAU, I'd
-> add Redis for the read-heavy redirect path and move analytics off the
-> critical path with a queue. Starting at 1M and scaling to 10M, I'd include
-> Redis and async analytics from day one, then add edge caching/CDN, read
-> replicas, partitioned analytics, hot-key protection, and abuse controls. I'd
-> avoid sharding until Postgres writes, storage, or operational maintenance
-> actually become the bottleneck. The core principle throughout: redirects
-> dominate writes, so scale reads first and keep the redirect path extremely
-> fast and reliable."
+> "Starting at 100K DAU, I'd keep it simple but not naive: stateless app
+> servers and multi-AZ Postgres behind a CDN that's foundational from day one
+> for latency, TLS, DNS, WAF, and DDoS. Generated links are deduplicated by
+> normalized URL so creation is naturally idempotent, and aliases are a
+> separate mutable layer. Growing to 1M DAU, I'd treat Redis as part of the
+> baseline serving path with write-through caching as the primary
+> read-after-write strategy, add PgBouncer, and refine the CDN — not introduce
+> it. Scaling to 10M DAU, I'd refine Redis into a cluster, add read replicas
+> for management reads only, move analytics off OLTP entirely into a stream
+> plus partitioned store, and refine the CDN further as the security and edge
+> platform (WAF, edge rate limiting, optional edge resolution). Postgres stays
+> the system of record at every stage; Redis and the CDN are serving layers.
+> I'd avoid sharding URL mappings until writes, storage, or operational
+> maintenance actually become the bottleneck — analytics partitioning comes
+> first. The core principle throughout: redirects dominate writes, so scale
+> reads first and keep the redirect path extremely fast and reliable."
 
 ## 14. Addendum: scaling beyond 10M DAU
 
@@ -1137,26 +1556,31 @@ Beyond 10M DAU, caching becomes layered:
 
 Sharding is the **last** structural lever, not an early one. The order isn't
 arbitrary — each phase fixes a *different* bottleneck, so you apply the one your
-measurement points to: **multi-AZ is availability; Redis, replicas, and the CDN
-are read scaling; partitioning is large-table maintainability; sharding is
-exceeding a single primary's write/storage ceiling.** Introduce each only when a
-measured bottleneck earns the added complexity.
+measurement points to: **multi-AZ is availability; Redis and read replicas are
+read scaling; the CDN is foundational from 100K DAU and *refined* at each later
+phase; partitioning is large-table maintainability; sharding is exceeding a
+single primary's write/storage ceiling.** Introduce each only when a measured
+bottleneck earns the added complexity.
 
 - **Phase 0 — Measure.** Find the real bottleneck first — p99, the slow-query
   log, cache hit rate, replica lag, connection counts. Never optimize on a hunch.
-- **Phase 1 — Eliminate inefficiency.** Right indexes (`UNIQUE(short_code)`),
-  tight queries, clean schema. Keep the redirect a single point lookup.
+- **Phase 1 — Eliminate inefficiency.** Right indexes (`UNIQUE(short_code)`,
+  `UNIQUE(owner_id, normalized_url)`), tight queries, clean schema. Keep the
+  redirect a single point lookup.
 - **Phase 2 — Scale up.** A bigger Postgres instance and a connection pooler
   (PgBouncer) — the cheapest lever, taken before adding moving parts.
 - **Phase 3 — High availability.** Multi-AZ primary + standby and a multi-AZ
-  stateless app tier. (Availability, not throughput.)
+  stateless app tier. (Availability, not throughput. This precedes read
+  replicas: a dead database hurts more than a busy one.)
 - **Phase 4 — Scale the read path. ← the dominant lever here.** Redis for
-  `short_code -> long_url`, then read replicas, then the CDN edge-caching the
-  `302`. Because redirects are ~100:1 reads of immutable rows, this phase
-  absorbs almost all growth.
+  `short_code -> long_url` and `alias_code -> short_code`, then read replicas
+  for management reads. The CDN is **already in place from 100K DAU** — in this
+  phase it gets *refined* with per-code cache tags, edge rate limiting, edge
+  abuse rules, and optional edge resolution. Because redirects are ~100:1 reads
+  of immutable rows, this phase absorbs almost all growth.
 - **Phase 5 — Offload specialized workloads.** Move click analytics off the OLTP
-  path to an event store / warehouse; add a search service only if "search my
-  links" demands it.
+  path to an event stream and a dedicated analytics store / warehouse; add a
+  search service only if "search my links" demands it.
 - **Phase 6 — Manage large tables.** Time-partition `click_events` (retention
   via `DROP`); the `urls` table only far later. (Detailed in the next
   subsection.)
@@ -1165,9 +1589,9 @@ measured bottleneck earns the added complexity.
 - **Phase 8 — Global scale & DR.** Multi-region reads, then (rarely) multi-region
   writes — the Stages 1-5 above.
 
-For a shortener the leverage is almost entirely **Phase 4** — cache and CDN —
-because the workload is read-heavy and the mapping is immutable; you can ride
-Phases 1-5 to enormous scale.
+For a shortener the leverage is almost entirely **Phase 4** — Redis plus the
+refined CDN — because the workload is read-heavy and the mapping is immutable;
+you can ride Phases 1-5 to enormous scale.
 
 **Will a shortener ever need to shard? Almost never — but not *categorically*
 never.** Redis + replicas + CDN (Phase 4) carry the read-heavy, tiny-row
@@ -1283,25 +1707,37 @@ One-line justifications to fire back when asked "why?".
 | Separate functional vs non-functional | Functional = what to build; non-functional = how, and it drives every scaling choice |
 | Back-of-envelope math | Turns "reads dominate" into a measured ~100:1 ratio that forces read-optimization |
 | Provision for peak | You're down during your busiest, most expensive hour otherwise |
-| Single `urls` table first | Minimum correct design; proves you don't add complexity reflexively |
+| Generated links vs aliases | Canonical immutable identity vs human mutable surface; rip-effect on caching, invalidation, analytics |
+| Two-table core model | `urls` (immutable canonical) + `aliases` (mutable human); collapsing them muddles the design |
 | `UNIQUE(short_code)` | Enforces correctness in the DB atomically, not in racy app code |
+| `UNIQUE(owner_id, normalized_url)` | Natural URL idempotency at the DB layer; same scoped URL returns the same code |
+| Conservative URL normalization | Lowercase host + drop default ports + normalize encoding only; preserve query params, fragments, path casing, scheme |
+| Preserve UTM/campaign params | UTM variants are different destinations on purpose; never strip silently |
+| Generated links immutable | Stable cache, stable CDN, stable analytics attribution; mutation happens on aliases |
 | No `click_count` on row | Avoids a write-on-every-read hot row; that's what the queue is for |
 | Base62 | 7 chars give ~3.5T codes: short for UX, huge keyspace |
 | Sequence + scramble | Collision-free and dense, without exposing a walkable sequence |
-| Boring `LB->App->PG` start | Correct and deployable day one; avoids a distributed monolith |
+| AWS-first `CDN -> LB -> App -> PG` start | Correct, multi-AZ, edge-protected day one; avoids a distributed monolith |
+| CDN foundational at 100K, refined later | Added once for latency/DNS/TLS/WAF/DDoS; never re-introduced at 1M or 10M |
+| Multi-AZ before read replicas | Availability before throughput; a dead DB hurts more than a busy one |
 | Bigger Postgres before Redis | Vertical scaling + indexes is the cheapest lever; exhaust it first |
 | Two app instances early | Availability and safe deploys, not throughput |
-| Redis cache | Avoids a repeated ~1–10 ms query and protects Postgres; Zipfian hot keys, not value size |
-| Cache-aside + write-through | Lazy-fill on read, populate on create; jittered TTL + coalescing stop stampedes |
+| Redis baseline at 1M DAU | Part of the serving layer, not an optimization; keeps Postgres off the hot path |
+| Redis/CDN as p99 tools | Not just throughput; they keep the database out of the redirect tail latency |
+| Cache-aside + write-through (primary) | Write-through on create is the workhorse read-after-write fix; cache-aside fills on miss |
+| Read-from-primary as backup | Use a recent-write window for dashboards/management views; redirect path hits Redis first |
+| Explicit CDN purge + short TTLs | CDN isn't write-through; per-code cache tags drop stale entries on alias mutation |
 | Async analytics | Never let a non-critical write block a critical read; also smooths spikes |
 | At-least-once + DLQ | Make analytics consumers idempotent; park poison events instead of blocking |
-| Read replicas | The 100:1 ratio means reads scale horizontally; watch replica lag |
-| Write-through cache | Fixes read-after-write 404s without read-your-writes routing |
+| Read replicas (10M, mgmt only) | The 100:1 ratio means reads scale horizontally; redirect path stays on Redis/CDN |
 | Return write result in response | Cheapest read-after-write fix — render from the create response, so there's no re-read to be stale |
 | Consistency per feature | Redirects tolerate eventual; only create/alias uniqueness needs strong |
-| CDN + edge functions | Cache and even resolve at the edge; absorbs hot keys; watch analytics bypass |
+| CDN as edge platform | Not just a cache: DNS, TLS, WAF, DDoS, edge rate limiting, optional edge resolution |
 | `302` over `301` | Preserves analytics, attribution, and destination control |
 | Scrambled codes + rate limit | Stop enumeration and probing without premature crypto |
+| Security focus shift at 10M | Dominant problems are abuse/phishing/bots/DDoS, not distributed-transaction puzzles |
+| Analytics partitioning before URL sharding | Click events grow much faster than URL mappings; partition the right table first |
+| Postgres as source of truth | Redis and CDN are serving layers; Postgres stays authoritative at every stage |
 | Defer sharding | Add only when writes/storage/ops actually hurt, not at a user milestone |
 | Partition before sharding | Split a table within one DB (maintainability) before splitting across nodes (capacity) |
 | HA + PITR both | HA survives a dead node; PITR survives a bad delete/migration |
@@ -1310,8 +1746,9 @@ One-line justifications to fire back when asked "why?".
 | Globalize reads before writes | Reads tolerate eventual replication; writes don't |
 | Design to p99 + SLOs | Averages hide the tail; measure hit rate, p99, QPS, errors |
 | Resilience patterns | Timeouts, circuit breaker, backoff + jitter, load shedding |
-| Idempotency key on create | A retried POST shouldn't mint a duplicate code |
-| PgBouncer pooling | Stateless/serverless fan-out exhausts Postgres connections |
+| Natural URL dedupe primary, Idempotency-Key optional | Dedupe by normalized URL is the engine; the header is a network-retry safety net |
+| PgBouncer pooling (~1M DAU) | Stateless/serverless fan-out exhausts Postgres connections before CPU/storage |
+| Branded domains as advanced scope | Hostname-aware lookup, domain onboarding, scoped uniqueness — layered on top, not baked in |
 
 ## 16. One-page cheat sheet
 
@@ -1321,22 +1758,28 @@ Numbers:
   QPS = `daily new URLs / 86,400`; peak ≈ avg × 10 (state it: ~10× spiky,
   2–3× steady)
 - read:write ≈ **100:1** in every scenario here
-- 100K DAU: ~12 / ~120 peak read QPS — Postgres only
-- 1M DAU: ~116 / ~1,160 peak read QPS — add Redis + async analytics
-- 10M DAU: ~1,157 / ~11,570 peak read QPS — add CDN, replicas, partitioned
-  analytics, abuse controls
+- 100K DAU: ~12 / ~120 peak read QPS — `CDN -> ALB(multi-AZ) -> App -> PG`
+- 1M DAU: ~116 / ~1,160 peak read QPS — add Redis (baseline) + PgBouncer +
+  async analytics; **refine** the CDN, do not re-introduce it
+- 10M DAU: ~1,157 / ~11,570 peak read QPS — refine Redis (cluster), add read
+  replicas (mgmt UI only), move analytics to stream + partitioned store,
+  **refine** the CDN as edge security platform; abuse becomes dominant concern
+- Zipfian win at 10M: CDN+Redis cuts peak DB redirect lookups from ~11.6K/sec
+  to ~12/sec
 - `62^7 ≈ 3.5T`, `62^8 ≈ 218T`
 
-Evolution ladder:
+Evolution ladder (the order, top to bottom):
 
-1. `LB -> App -> Postgres` (+ 2 instances for HA)
-2. `Bigger Postgres + indexes` (cheapest lever; do this before new moving parts)
-3. `+ Redis` (cache `short_code -> long_url`)
-4. `+ Queue + Workers` (async analytics off the hot path)
-5. `+ Read replicas` (mind read-after-write; prefer write-through cache)
-6. `+ CDN/edge` (hot-key absorption; mind analytics bypass)
-7. `+ Multi-AZ`, then `multi-region reads`, then (only if forced)
-   `multi-region writes`
+1. `CDN -> ALB(multi-AZ) -> App -> Postgres(multi-AZ)` from day one
+2. `Bigger Postgres + indexes` (cheapest lever before new moving parts)
+3. `+ Redis` as baseline serving (write-through on create primary)
+4. `+ PgBouncer` (around 1M DAU; before app-tier fan-out grows further)
+5. `+ Queue + Workers` (async analytics off the hot path)
+6. **Refine CDN** (per-code cache tags, edge rules, WAF/edge rate limit, optional edge KV)
+7. `+ Read replicas` (management reads only; redirect stays on Redis/CDN)
+8. Move analytics to stream + partitioned store (separate from OLTP)
+9. Time-partition `click_events` long before considering URL partitioning
+10. `Multi-region reads`, then (rarely) `multi-region writes`
 
 Things to say out loud:
 
@@ -1349,3 +1792,163 @@ Things to say out loud:
 - "The short code is never the security boundary; auth is."
 - "Design to p99, not the average — the tail is what users feel."
 - "Pick consistency per feature: redirects eventual, alias uniqueness strong."
+- "Generated links are canonical and immutable; aliases are the mutable surface."
+- "The CDN is foundational from 100K DAU and refined at every later phase, not added at 10M."
+- "Redis and the CDN are serving layers; Postgres is the system of record."
+- "I partition analytics years before I shard URL mappings."
+
+## 17. Advanced feature: branded / custom domains
+
+This section is **optional advanced scope**. The core design (sections 0–13)
+and the scaling addendum (section 14) do not require branded domains. Bring
+this in only when the interviewer pushes on branded/custom domains (e.g.
+`go.brand.com` in addition to `rvb.ly`) or asks how the core would extend.
+
+Branded domains change the **lookup key** from `short_code` to `(hostname,
+short_code)`. That ripples through the data model, the resolution path, the
+cache keys, and the dedupe scope, but the core architectural shape (Redis,
+CDN, multi-AZ, partitioning, etc.) is unchanged.
+
+### Domains as first-class resources
+
+Introduce a `domains` table that other tables reference:
+
+```sql
+CREATE TABLE domains (
+  id                   BIGSERIAL PRIMARY KEY,
+  owner_id             BIGINT NOT NULL,
+  hostname             TEXT UNIQUE NOT NULL,  -- e.g. "go.brand.com"
+  verification_status  TEXT NOT NULL,         -- pending | verified | failed | disabled
+  tls_status           TEXT NOT NULL,         -- pending | active | failed
+  created_at           TIMESTAMP NOT NULL,
+  activated_at         TIMESTAMP NULL
+);
+```
+
+- `UNIQUE(hostname)` because a hostname can only belong to one tenant on this
+  platform.
+- Lifecycle states make domain onboarding a managed workflow rather than a
+  one-shot insert.
+
+The canonical-link table gets a `domain_id` so codes can collide *across*
+domains without ambiguity:
+
+```sql
+ALTER TABLE urls       ADD COLUMN domain_id BIGINT NOT NULL DEFAULT <platform_domain>;
+ALTER TABLE aliases    ADD COLUMN domain_id BIGINT NOT NULL DEFAULT <platform_domain>;
+
+ALTER TABLE urls       ADD CONSTRAINT urls_domain_code_unique
+  UNIQUE (domain_id, short_code);
+ALTER TABLE aliases    ADD CONSTRAINT aliases_domain_code_unique
+  UNIQUE (domain_id, alias_code);
+```
+
+- `(domain_id, short_code)` and `(domain_id, alias_code)` replace the
+  single-namespace `UNIQUE(short_code)` / `UNIQUE(alias_code)` constraints from
+  the core model.
+- The dedupe scope for natural URL idempotency generalizes from
+  `(owner_id, normalized_url)` to `(owner_id, domain_id, normalized_url)`, so
+  the same destination URL can produce different canonical short codes on
+  different branded domains (each domain has its own analytics and lifecycle).
+
+### Hostname-aware redirect lookup
+
+Resolution becomes a two-tuple lookup. The `Host` header (or the SNI/host
+routing at the edge) is part of the cache key, the database query, and the
+edge cache configuration.
+
+```text
+Incoming request:
+  Host: rvb.ly        Path: /sale   ->  lookup (rvb.ly, "sale")
+  Host: go.brand.com  Path: /sale   ->  lookup (go.brand.com, "sale")
+```
+
+These may resolve to completely different destinations. The redirect handler
+must **never** trust `short_code` alone once branded domains exist.
+
+Redis keys must include the hostname so different domains can hold the same
+code without collision:
+
+```text
+redis: rvb.ly:sale         -> https://reverb.com/sale-page
+redis: go.brand.com:sale   -> https://brand.com/promotions
+```
+
+The CDN configuration must key on the host as well: cache rules and cache tags
+are per `(hostname, code)` rather than per `code`, and purges target the
+hostname-scoped key.
+
+### Domain onboarding flow
+
+The standard SaaS branded-domain pattern is a five-step workflow:
+
+1. **Register**: the customer creates a domain record (`POST /domains` with
+   `hostname`).
+2. **Provide DNS target**: the platform returns a target (e.g.
+   `cname.shortener.com`) and a verification token.
+3. **Customer creates CNAME**: `go.brand.com  CNAME  cname.shortener.com`.
+4. **Verify ownership**: the platform DNS-resolves the hostname, confirms the
+   CNAME, and validates the verification token.
+5. **Provision TLS**: typically via the CDN/edge (Cloudflare for SaaS,
+   ACM-issued certs, or Let's Encrypt with HTTP-01/DNS-01 validation). The
+   domain transitions to `active` only after TLS is in place.
+
+Lifecycle states make this auditable:
+
+```text
+pending  -> verified  -> active
+pending  -> failed    (verification failed)
+active   -> disabled  (owner action or abuse takedown)
+```
+
+### API surface (deferred from section 2)
+
+```http
+POST   /domains                # register a new branded hostname
+GET    /domains                # list domains for the owner
+GET    /domains/{id}           # status, TLS, verification details
+POST   /domains/{id}/verify    # trigger DNS/TLS verification
+DELETE /domains/{id}           # disable / remove
+```
+
+Creation, listing, and lifecycle endpoints for `urls` and `aliases` extend to
+accept an optional `domainId` (defaulting to the platform's own hostname when
+omitted).
+
+### Cache, CDN, and purge implications
+
+- **Redis keys** must encode the hostname (`hostname:code`). The redirect
+  handler reads `Host` and constructs the key; this is the single most
+  important change.
+- **CDN cache rules** apply per hostname, and cache tags must be scoped by
+  hostname so a purge on `go.brand.com/sale` doesn't also clear `rvb.ly/sale`.
+- **Edge resolution** (if you use it) loads from a hostname-scoped edge KV.
+- **TLS termination** moves to the CDN/edge for branded domains; the origin
+  doesn't manage per-customer certs.
+
+### Security and abuse considerations
+
+- Branded domains expand the attack surface: each customer's hostname is a
+  separate trust boundary, and a verified branded domain inherits some of the
+  platform's reputation.
+- Abuse takedowns at the **domain** level (not just the link level) become a
+  necessary operation — disabling a domain should stop all redirects under it
+  immediately (Redis purge + CDN purge by hostname + DB flag).
+- Domain verification prevents impersonation; without it, anyone could claim a
+  hostname they don't own.
+
+### Why this stays out of the core
+
+- The vast majority of shortener interview questions don't require branded
+  domains; bringing them in early adds tables, lookup complexity, and cache
+  keying that obscure the core design points.
+- The change is **structural but not architectural**: Redis, CDN, multi-AZ,
+  partitioning, sharding, and analytics all stay the same; only the lookup key
+  and dedupe scope shift.
+- Calling this out as advanced scope is itself a design signal — it shows you
+  know how the core extends without insisting that every shortener needs it.
+
+> "Branded domains turn the lookup key into `(hostname, short_code)` and add a
+> verification/TLS workflow, but they don't change the underlying caching,
+> serving, or analytics architecture. I'd treat them as a layered feature on
+> top of the core design rather than baking them in from day one."
